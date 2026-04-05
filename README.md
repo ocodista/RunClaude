@@ -1,47 +1,52 @@
 # RunClaude
 
-A macOS menu bar companion for Claude Code that shows token burn rate in real time.
+Menu bar token burn-rate monitor for Claude Code. A stick figure that sleeps when you're idle, walks between turns, runs while tokens flow, and sprints under load — inspired by [RunCat](https://kyome.io/runcat/).
 
-RunClaude watches your local Claude Code session logs and renders a tiny running stick figure in the menu bar. The figure sleeps when you're idle, walks between turns, runs while tokens flow, and sprints under heavy load — inspired by [RunCat](https://kyome.io/runcat/). Click the icon for a live breakdown of cost, tokens, and per-model usage.
+Click the icon for live cost, tokens, and per-model breakdown.
 
 ## Features
 
-- Live burn rate (tokens/second) over a 60-second sliding window
-- Per-model cost breakdown (Opus, Sonnet, Haiku) with cache-aware pricing
+- Burn rate over a 60s sliding window
+- Per-model cost (Opus, Sonnet, Haiku) with cache-aware pricing
 - Active session list with project and token totals
-- Animated menu bar icon that reflects current activity
-- Zero configuration — reads `~/.claude/projects/` directly
-- Single Swift binary, no background daemon
+- Reads `~/.claude/projects/` directly — no config, no network
+- Single Swift binary
 
 ## Requirements
 
 - macOS 14+
 - Xcode command line tools
 
-## Run
+## Install
+
+```sh
+git clone https://github.com/ocodista/RunClaude.git
+cd RunClaude/app
+./build.sh
+cp -R build/RunClaude.app /Applications/
+open /Applications/RunClaude.app
+```
+
+Or for dev (builds and launches from `app/build/`):
 
 ```sh
 ./start.sh
 ```
 
-This compiles the Swift app and launches it. The menu bar icon appears within a second.
-
 ## Architecture
 
-One process, one binary:
+- `app/RunClaude/BurnRateEngine.swift` — aggregation, pricing, snapshot
+- `app/RunClaude/SessionScanner.swift` — tails JSONL with incremental offsets
+- `app/RunClaude/EyeRenderer.swift` — draws the stick figure
+- `app/RunClaude/PopoverView.swift` — SwiftUI dashboard
 
-- **`app/RunClaude/BurnRateEngine.swift`** — aggregates usage, computes tokens/second, per-model costs.
-- **`app/RunClaude/SessionScanner.swift`** — tails JSONL files in `~/.claude/projects/` with incremental offsets.
-- **`app/RunClaude/EyeRenderer.swift`** — draws the animated stick figure into the menu bar icon.
-- **`app/RunClaude/PopoverView.swift`** — SwiftUI popover with the stats dashboard.
-
-The scanner polls every 2 seconds and reads only the new bytes appended to each file since the last read.
+Polls every 2s, reads only newly appended bytes.
 
 ## Roadmap
 
-- App Store submission (sandbox + user-selected folder access for `~/.claude/projects/`)
-- Notarized `.dmg` for direct download
-- Configurable window size and pricing overrides
+- App Store submission (sandbox + folder-access entitlement)
+- Notarized `.dmg`
+- Configurable window and pricing
 
 ## License
 
