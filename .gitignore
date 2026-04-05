@@ -1,0 +1,7 @@
+node_modules/
+*.xcodeproj
+build/
+.DS_Store
+server/bun.lock
+app/ClaudeEyes_bin
+app/ClaudeEyes.app/
