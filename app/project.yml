@@ -1,4 +1,4 @@
-name: ClaudeEyes
+name: RunClaude
 options:
   bundleIdPrefix: com.caioborghi
   deploymentTarget:
@@ -8,19 +8,19 @@ settings:
   base:
     SWIFT_VERSION: "5.10"
     MACOSX_DEPLOYMENT_TARGET: "14.0"
-    PRODUCT_NAME: Claude Eyes
+    PRODUCT_NAME: RunClaude
 targets:
-  ClaudeEyes:
+  RunClaude:
     type: application
     platform: macOS
     sources:
-      - ClaudeEyes
+      - RunClaude
     info:
-      path: ClaudeEyes/Info.plist
+      path: RunClaude/Info.plist
       properties:
         LSUIElement: true
     entitlements:
-      path: ClaudeEyes/ClaudeEyes.entitlements
+      path: RunClaude/RunClaude.entitlements
       properties:
         com.apple.security.app-sandbox: false
         com.apple.security.network.client: true

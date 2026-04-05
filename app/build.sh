@@ -1,12 +1,12 @@
 #!/bin/bash
 set -euo pipefail
 
-APP_NAME="Claude Eyes"
-BUNDLE_ID="com.caioborghi.ClaudeEyes"
+APP_NAME="RunClaude"
+BUNDLE_ID="com.caioborghi.RunClaude"
 BUILD_DIR="build"
 APP_DIR="$BUILD_DIR/$APP_NAME.app"
 
-echo "Building Claude Eyes..."
+echo "Building $APP_NAME..."
 
 # Clean
 rm -rf "$BUILD_DIR"
@@ -20,14 +20,14 @@ xcrun swiftc \
   -framework AppKit -framework SwiftUI \
   -parse-as-library \
   -O \
-  ClaudeEyes/ClaudeEyesApp.swift \
-  ClaudeEyes/AppDelegate.swift \
-  ClaudeEyes/EyeState.swift \
-  ClaudeEyes/EyeAnimator.swift \
-  ClaudeEyes/EyeRenderer.swift \
-  ClaudeEyes/ServerClient.swift \
-  ClaudeEyes/PopoverView.swift \
-  -o "$APP_DIR/Contents/MacOS/ClaudeEyes"
+  RunClaude/RunClaudeApp.swift \
+  RunClaude/AppDelegate.swift \
+  RunClaude/EyeState.swift \
+  RunClaude/EyeAnimator.swift \
+  RunClaude/EyeRenderer.swift \
+  RunClaude/ServerClient.swift \
+  RunClaude/PopoverView.swift \
+  -o "$APP_DIR/Contents/MacOS/$APP_NAME"
 
 # Info.plist
 cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
@@ -36,13 +36,13 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 <plist version="1.0">
 <dict>
     <key>CFBundleDisplayName</key>
-    <string>Claude Eyes</string>
+    <string>RunClaude</string>
     <key>CFBundleExecutable</key>
-    <string>ClaudeEyes</string>
+    <string>RunClaude</string>
     <key>CFBundleIdentifier</key>
-    <string>com.caioborghi.ClaudeEyes</string>
+    <string>com.caioborghi.RunClaude</string>
     <key>CFBundleName</key>
-    <string>Claude Eyes</string>
+    <string>RunClaude</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>

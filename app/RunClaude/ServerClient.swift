@@ -1,11 +1,32 @@
 import Foundation
 
 struct StatusResponse: Codable {
+    let serverStartedAt: String
     let tokensPerSecond: Double
-    let activeSessions: [SessionInfo]
+    let windowSeconds: Int
     let totalTokens: Int
     let estimatedCostUsd: Double
-    let windowSeconds: Int
+    let totalSessions: Int
+    let activeSessions: [SessionInfo]
+    let modelBreakdown: [ModelBreakdown]
+
+    var serverStartedAtDate: Date? {
+        ISO8601DateFormatter.withFractional.date(from: serverStartedAt)
+            ?? ISO8601DateFormatter().date(from: serverStartedAt)
+    }
+}
+
+struct ModelBreakdown: Codable, Identifiable {
+    let model: String
+    let tokens: Int
+    let costUsd: Double
+    let sessionCount: Int
+    let inputTokens: Int
+    let outputTokens: Int
+    let cacheCreationTokens: Int
+    let cacheReadTokens: Int
+
+    var id: String { model }
 }
 
 struct SessionInfo: Codable, Identifiable {
@@ -25,6 +46,14 @@ struct SessionInfo: Codable, Identifiable {
     var totalTokens: Int {
         totalInputTokens + totalOutputTokens + totalCacheCreationTokens + totalCacheReadTokens
     }
+}
+
+extension ISO8601DateFormatter {
+    static let withFractional: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
 }
 
 @MainActor

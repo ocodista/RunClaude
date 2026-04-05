@@ -26,12 +26,26 @@ export interface SessionState {
   lastSeen: Date;
 }
 
+export interface ModelBreakdown {
+  model: string;
+  tokens: number;
+  costUsd: number;
+  sessionCount: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens: number;
+  cacheReadTokens: number;
+}
+
 export interface BurnRateStatus {
+  serverStartedAt: string;   // ISO timestamp — marks when counting began
   tokensPerSecond: number;
-  activeSessions: SessionState[];
+  windowSeconds: number;
   totalTokens: number;
   estimatedCostUsd: number;
-  windowSeconds: number;
+  totalSessions: number;
+  activeSessions: SessionState[];
+  modelBreakdown: ModelBreakdown[];
 }
 
 export interface JSONLEntry {

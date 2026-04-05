@@ -3,5 +3,5 @@ node_modules/
 build/
 .DS_Store
 server/bun.lock
-app/ClaudeEyes_bin
-app/ClaudeEyes.app/
+app/RunClaude_bin
+app/RunClaude.app/

@@ -6,6 +6,7 @@ const PORT = 17888;
 
 const calculator = new BurnRateCalculator();
 const scanner = new SessionScanner(calculator);
+const serverStartedAt = new Date().toISOString();
 
 await scanner.start();
 
@@ -16,11 +17,14 @@ const server = Bun.serve({
 
     if (url.pathname === "/status") {
       const status: BurnRateStatus = {
+        serverStartedAt,
         tokensPerSecond: calculator.getTokensPerSecond(),
-        activeSessions: calculator.getActiveSessions(),
+        windowSeconds: 60,
         totalTokens: calculator.getTotalTokens(),
         estimatedCostUsd: calculator.getEstimatedCost(),
-        windowSeconds: 60,
+        totalSessions: calculator.getTotalSessions(),
+        activeSessions: calculator.getActiveSessions(),
+        modelBreakdown: calculator.getModelBreakdown(),
       };
 
       return Response.json(status, {
@@ -36,5 +40,5 @@ const server = Bun.serve({
   },
 });
 
-console.log(`[claude-eyes] server running on http://localhost:${PORT}`);
-console.log(`[claude-eyes] GET /status for token burn rate`);
+console.log(`[runclaude] server running on http://localhost:${PORT}`);
+console.log(`[runclaude] GET /status for token burn rate`);

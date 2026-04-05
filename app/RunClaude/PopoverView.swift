@@ -1,8 +1,23 @@
 import SwiftUI
 
+enum DetailTab: String, CaseIterable, Identifiable {
+    case models = "Models"
+    case sessions = "Sessions"
+    var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .models:   return "cpu"
+        case .sessions: return "terminal.fill"
+        }
+    }
+}
+
 struct PopoverView: View {
     @ObservedObject var serverClient: ServerClient
     @ObservedObject var eyeAnimator: EyeAnimator
+
+    @State private var detailTab: DetailTab = .models
 
     private var effectiveState: EyeActivityState {
         eyeAnimator.forcedState ?? eyeAnimator.currentState
@@ -17,14 +32,11 @@ struct PopoverView: View {
             Divider()
 
             if let status = serverClient.status {
-                statsView(status: status)
+                summaryView(status: status)
                 Divider()
-
-                if !status.activeSessions.isEmpty {
-                    sessionsView(sessions: status.activeSessions)
-                } else {
-                    emptySessionsView
-                }
+                detailTabsView
+                Divider()
+                detailContent(status: status)
             } else if !serverClient.isConnected {
                 disconnectedView
             }
@@ -34,14 +46,14 @@ struct PopoverView: View {
             Divider()
             footerView
         }
-        .frame(width: 340)
+        .frame(width: 360)
     }
 
     // MARK: - Header
 
     private var headerView: some View {
         HStack(spacing: 8) {
-            Text("Claude Eyes")
+            Text("RunClaude")
                 .font(.headline)
             Spacer()
             HStack(spacing: 6) {
@@ -57,13 +69,13 @@ struct PopoverView: View {
         .padding(.vertical, 12)
     }
 
-    // MARK: - Current state card
+    // MARK: - State card
 
     private var stateCard: some View {
         let info = stateInfo(effectiveState)
         return HStack(spacing: 12) {
             Text(info.emoji)
-                .font(.system(size: 30))
+                .font(.system(size: 28))
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(info.title)
@@ -75,10 +87,7 @@ struct PopoverView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 4)
                             .padding(.vertical, 1)
-                            .background(
-                                RoundedRectangle(cornerRadius: 3)
-                                    .fill(Color.orange)
-                            )
+                            .background(RoundedRectangle(cornerRadius: 3).fill(Color.orange))
                     }
                 }
                 Text(stateSubtitle(effectiveState))
@@ -90,11 +99,8 @@ struct PopoverView: View {
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(
-            LinearGradient(
-                colors: [info.color.opacity(0.08), Color.clear],
-                startPoint: .leading,
-                endPoint: .trailing
-            )
+            LinearGradient(colors: [info.color.opacity(0.08), .clear],
+                           startPoint: .leading, endPoint: .trailing)
         )
     }
 
@@ -117,31 +123,52 @@ struct PopoverView: View {
         }
     }
 
-    // MARK: - Stats
+    // MARK: - Summary (always visible)
 
-    private func statsView(status: StatusResponse) -> some View {
-        HStack(spacing: 8) {
-            statCard(
-                icon: "flame.fill",
-                iconColor: .orange,
-                label: "Burn Rate",
-                value: formatTokenRate(status.tokensPerSecond)
-            )
-            statCard(
-                icon: "number",
-                iconColor: .blue,
-                label: "Tokens",
-                value: formatTokenCount(status.totalTokens)
-            )
-            statCard(
-                icon: "dollarsign.circle.fill",
-                iconColor: .green,
-                label: "Cost",
-                value: formatCost(status.estimatedCostUsd)
-            )
+    private func summaryView(status: StatusResponse) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Counting-since line
+            HStack(spacing: 5) {
+                Image(systemName: "clock")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                Text("Counting since ")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                + Text(countingSinceText(status: status))
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 8) {
+                statCard(
+                    icon: "flame.fill",
+                    iconColor: .orange,
+                    label: "Burn Rate",
+                    value: formatTokenRate(status.tokensPerSecond)
+                )
+                statCard(
+                    icon: "number",
+                    iconColor: .blue,
+                    label: "Tokens",
+                    value: formatTokenCount(status.totalTokens)
+                )
+                statCard(
+                    icon: "dollarsign.circle.fill",
+                    iconColor: .green,
+                    label: "Cost",
+                    value: formatCost(status.estimatedCostUsd)
+                )
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+
+    private func countingSinceText(status: StatusResponse) -> String {
+        guard let date = status.serverStartedAtDate else { return "server start" }
+        let elapsed = Date().timeIntervalSince(date)
+        return "\(formatElapsed(elapsed)) ago"
     }
 
     private func statCard(icon: String, iconColor: Color, label: String, value: String) -> some View {
@@ -163,60 +190,171 @@ struct PopoverView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 7)
-                .fill(Color.secondary.opacity(0.08))
-        )
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.08)))
     }
 
-    // MARK: - Sessions
+    // MARK: - Detail tabs
 
-    private func sessionsView(sessions: [SessionInfo]) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Active Sessions")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
-                Spacer()
-                Text("\(sessions.count)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(
-                        Capsule()
-                            .fill(Color.secondary.opacity(0.15))
-                    )
+    private var detailTabsView: some View {
+        HStack(spacing: 4) {
+            ForEach(DetailTab.allCases) { tab in
+                tabButton(tab)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 6)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
 
-            ScrollView {
-                VStack(spacing: 6) {
-                    ForEach(sessions) { session in
-                        sessionCard(session: session)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 10)
+    private func tabButton(_ tab: DetailTab) -> some View {
+        let isActive = detailTab == tab
+        return Button {
+            detailTab = tab
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: tab.icon)
+                    .font(.system(size: 10))
+                Text(tab.rawValue)
+                    .font(.system(size: 11, weight: .medium))
             }
-            .frame(maxHeight: 180)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(isActive ? Color.accentColor.opacity(0.15) : Color.clear)
+            )
+            .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func detailContent(status: StatusResponse) -> some View {
+        switch detailTab {
+        case .models:
+            modelsView(status: status)
+        case .sessions:
+            sessionsView(status: status)
         }
     }
 
-    private func sessionCard(session: SessionInfo) -> some View {
+    // MARK: - Models tab
+
+    private func modelsView(status: StatusResponse) -> some View {
+        let models = status.modelBreakdown
+        let totalCost = max(models.map(\.costUsd).reduce(0, +), 0.0001)
+
+        return Group {
+            if models.isEmpty {
+                emptyDetailView(icon: "cpu", text: "No model usage yet")
+            } else {
+                ScrollView {
+                    VStack(spacing: 6) {
+                        ForEach(models) { m in
+                            modelRow(m, share: m.costUsd / totalCost)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                }
+                .frame(maxHeight: 200)
+            }
+        }
+    }
+
+    private func modelRow(_ m: ModelBreakdown, share: Double) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Image(systemName: "terminal.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(.blue)
+                Circle()
+                    .fill(modelColor(m.model))
+                    .frame(width: 7, height: 7)
+                Text(shortModelName(m.model))
+                    .font(.system(.caption, design: .monospaced, weight: .semibold))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text(formatCost(m.costUsd))
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+            }
+
+            // Share bar
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.secondary.opacity(0.12))
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(modelColor(m.model))
+                        .frame(width: max(2, geo.size.width * share))
+                }
+            }
+            .frame(height: 4)
+
+            HStack(spacing: 6) {
+                Text("\(formatTokenCount(m.tokens)) tokens")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Text("·")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                Text("\(m.sessionCount) session\(m.sessionCount == 1 ? "" : "s")")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text("\(Int((share * 100).rounded()))%")
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
+    }
+
+    private func modelColor(_ model: String) -> Color {
+        let lower = model.lowercased()
+        if lower.contains("opus")   { return .purple }
+        if lower.contains("sonnet") { return .blue }
+        if lower.contains("haiku")  { return .teal }
+        return .gray
+    }
+
+    // MARK: - Sessions tab
+
+    private func sessionsView(status: StatusResponse) -> some View {
+        Group {
+            if status.activeSessions.isEmpty {
+                emptyDetailView(icon: "moon.zzz", text: "No active sessions")
+            } else {
+                ScrollView {
+                    VStack(spacing: 6) {
+                        ForEach(status.activeSessions) { s in
+                            sessionCard(s)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                }
+                .frame(maxHeight: 200)
+            }
+        }
+    }
+
+    private func sessionCard(_ session: SessionInfo) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(modelColor(session.model))
+                    .frame(width: 7, height: 7)
                 Text(sessionTitle(session))
                     .font(.system(.caption, design: .monospaced, weight: .semibold))
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                modelBadge(session.model)
+                Text(shortModelName(session.model))
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.15)))
             }
 
             HStack(spacing: 4) {
@@ -239,49 +377,31 @@ struct PopoverView: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 6)
-                .fill(Color.secondary.opacity(0.06))
-        )
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
     }
 
     private func sessionTitle(_ session: SessionInfo) -> String {
         session.slug.isEmpty ? String(session.sessionId.prefix(8)) : session.slug
     }
 
-    private func modelBadge(_ model: String) -> some View {
-        Text(shortModelName(model))
-            .font(.system(size: 9, weight: .medium))
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 5)
-            .padding(.vertical, 2)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(Color.secondary.opacity(0.15))
-            )
-    }
-
     private func shortModelName(_ model: String) -> String {
-        // "claude-opus-4-6" -> "opus-4.6"
-        let trimmed = model.replacingOccurrences(of: "claude-", with: "")
-        // Replace last "-N-M" with ".N.M"-ish
-        return trimmed
+        model.replacingOccurrences(of: "claude-", with: "")
     }
 
     // MARK: - Empty / Disconnected
 
-    private var emptySessionsView: some View {
-        VStack(spacing: 4) {
+    private func emptyDetailView(icon: String, text: String) -> some View {
+        VStack(spacing: 6) {
             Spacer()
-            Image(systemName: "moon.zzz")
+            Image(systemName: icon)
                 .font(.title3)
                 .foregroundStyle(.secondary)
-            Text("No active sessions")
+            Text(text)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Spacer()
         }
-        .frame(maxWidth: .infinity, minHeight: 80)
+        .frame(maxWidth: .infinity, minHeight: 90)
     }
 
     private var disconnectedView: some View {
@@ -348,10 +468,8 @@ struct PopoverView: View {
             eyeAnimator.forcedState = isActive ? nil : state
         } label: {
             HStack(spacing: 3) {
-                Text(info.emoji)
-                    .font(.system(size: 11))
-                Text(label)
-                    .font(.system(size: 10, weight: .medium))
+                Text(info.emoji).font(.system(size: 11))
+                Text(label).font(.system(size: 10, weight: .medium))
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
@@ -404,6 +522,16 @@ struct PopoverView: View {
 
     private func formatCost(_ cost: Double) -> String {
         if cost < 0.01 { return "$0.00" }
-        return String(format: "$%.2f", cost)
+        if cost < 100  { return String(format: "$%.2f", cost) }
+        return String(format: "$%.0f", cost)
+    }
+
+    private func formatElapsed(_ seconds: TimeInterval) -> String {
+        let s = Int(seconds)
+        if s < 60  { return "\(s)s" }
+        if s < 3600 { return "\(s / 60)m" }
+        let h = s / 3600
+        let m = (s % 3600) / 60
+        return m > 0 ? "\(h)h \(m)m" : "\(h)h"
     }
 }
