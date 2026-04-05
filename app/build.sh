@@ -25,7 +25,8 @@ xcrun swiftc \
   RunClaude/EyeState.swift \
   RunClaude/EyeAnimator.swift \
   RunClaude/EyeRenderer.swift \
-  RunClaude/ServerClient.swift \
+  RunClaude/BurnRateEngine.swift \
+  RunClaude/SessionScanner.swift \
   RunClaude/PopoverView.swift \
   -o "$APP_DIR/Contents/MacOS/$APP_NAME"
 

@@ -14,7 +14,7 @@ enum DetailTab: String, CaseIterable, Identifiable {
 }
 
 struct PopoverView: View {
-    @ObservedObject var serverClient: ServerClient
+    @ObservedObject var engine: BurnRateEngine
     @ObservedObject var eyeAnimator: EyeAnimator
 
     @State private var detailTab: DetailTab = .models
@@ -31,14 +31,14 @@ struct PopoverView: View {
             stateCard
             Divider()
 
-            if let status = serverClient.status {
+            if let status = engine.status {
                 summaryView(status: status)
                 Divider()
                 detailTabsView
                 Divider()
                 detailContent(status: status)
-            } else if !serverClient.isConnected {
-                disconnectedView
+            } else {
+                loadingView
             }
 
             Divider()
@@ -58,9 +58,9 @@ struct PopoverView: View {
             Spacer()
             HStack(spacing: 6) {
                 Circle()
-                    .fill(serverClient.isConnected ? Color.green : Color.red)
+                    .fill(Color.green)
                     .frame(width: 7, height: 7)
-                Text(serverClient.isConnected ? "Connected" : "Offline")
+                Text("Watching")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -114,7 +114,7 @@ struct PopoverView: View {
     }
 
     private func stateSubtitle(_ state: EyeActivityState) -> String {
-        let rate = serverClient.status?.tokensPerSecond ?? 0
+        let rate = engine.status?.tokensPerSecond ?? 0
         switch state {
         case .sleeping: return "No activity for 30s+"
         case .walking:  return "Idle • recently active"
@@ -125,7 +125,7 @@ struct PopoverView: View {
 
     // MARK: - Summary (always visible)
 
-    private func summaryView(status: StatusResponse) -> some View {
+    private func summaryView(status: StatusSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             // Counting-since line
             HStack(spacing: 5) {
@@ -165,9 +165,8 @@ struct PopoverView: View {
         .padding(.vertical, 12)
     }
 
-    private func countingSinceText(status: StatusResponse) -> String {
-        guard let date = status.serverStartedAtDate else { return "server start" }
-        let elapsed = Date().timeIntervalSince(date)
+    private func countingSinceText(status: StatusSnapshot) -> String {
+        let elapsed = Date().timeIntervalSince(status.serverStartedAt)
         return "\(formatElapsed(elapsed)) ago"
     }
 
@@ -229,7 +228,7 @@ struct PopoverView: View {
     }
 
     @ViewBuilder
-    private func detailContent(status: StatusResponse) -> some View {
+    private func detailContent(status: StatusSnapshot) -> some View {
         switch detailTab {
         case .models:
             modelsView(status: status)
@@ -240,7 +239,7 @@ struct PopoverView: View {
 
     // MARK: - Models tab
 
-    private func modelsView(status: StatusResponse) -> some View {
+    private func modelsView(status: StatusSnapshot) -> some View {
         let models = status.modelBreakdown
         let totalCost = max(models.map(\.costUsd).reduce(0, +), 0.0001)
 
@@ -320,7 +319,7 @@ struct PopoverView: View {
 
     // MARK: - Sessions tab
 
-    private func sessionsView(status: StatusResponse) -> some View {
+    private func sessionsView(status: StatusSnapshot) -> some View {
         Group {
             if status.activeSessions.isEmpty {
                 emptyDetailView(icon: "moon.zzz", text: "No active sessions")
@@ -404,19 +403,14 @@ struct PopoverView: View {
         .frame(maxWidth: .infinity, minHeight: 90)
     }
 
-    private var disconnectedView: some View {
+    private var loadingView: some View {
         VStack(spacing: 8) {
             Spacer()
-            Image(systemName: "network.slash")
-                .font(.title2)
-                .foregroundStyle(.secondary)
-            Text("Server not running")
-                .font(.headline)
-                .foregroundStyle(.secondary)
-            Text("Run: cd server && bun dev")
+            ProgressView()
+                .controlSize(.small)
+            Text("Scanning sessions…")
                 .font(.caption)
-                .foregroundStyle(.tertiary)
-                .textSelection(.enabled)
+                .foregroundStyle(.secondary)
             Spacer()
         }
         .frame(maxWidth: .infinity, minHeight: 120)
@@ -498,7 +492,7 @@ struct PopoverView: View {
             .foregroundStyle(.secondary)
             .font(.caption)
             Spacer()
-            Text("localhost:17888")
+            Text("~/.claude/projects")
                 .font(.system(size: 9, design: .monospaced))
                 .foregroundStyle(.tertiary)
         }

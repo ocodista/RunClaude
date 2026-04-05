@@ -1,13 +1,14 @@
 import AppKit
 import SwiftUI
 
+@MainActor
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var eyeAnimator: EyeAnimator!
-    private var serverClient: ServerClient!
+    private var engine: BurnRateEngine!
+    private var scanner: SessionScanner!
     private var animationTimer: Timer?
-    private var pollTimer: Timer?
     private var eventMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -26,24 +27,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         popover.behavior = .transient
 
         // Initialize services
-        serverClient = ServerClient()
+        engine = BurnRateEngine()
+        scanner = SessionScanner(engine: engine)
         eyeAnimator = EyeAnimator()
 
-        let statusView = PopoverView(serverClient: serverClient, eyeAnimator: eyeAnimator)
+        let statusView = PopoverView(engine: engine, eyeAnimator: eyeAnimator)
         popover.contentViewController = NSHostingController(rootView: statusView)
 
-        // Animation loop at ~24fps
+        // Start tailing Claude session files
+        scanner.start()
+
+        // Animation loop at ~24fps — also pulls the latest burn rate from the engine.
         animationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 24.0, repeats: true) { [weak self] _ in
-            self?.updateEyes()
+            Task { @MainActor in
+                self?.tick()
+            }
         }
-
-        // Poll server every 2 seconds
-        pollTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
-            self?.pollServer()
-        }
-
-        // Initial poll
-        pollServer()
 
         // Close popover when clicking outside
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
@@ -53,7 +52,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func updateEyes() {
+    private func tick() {
+        eyeAnimator.updateBurnRate(tokensPerSecond: engine.status?.tokensPerSecond ?? 0)
         eyeAnimator.tick()
         let image = EyeRenderer.render(
             state: eyeAnimator.forcedState ?? eyeAnimator.currentState,
@@ -62,23 +62,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.image = image
     }
 
-    private func pollServer() {
-        Task {
-            if let status = await serverClient.fetchStatus() {
-                await MainActor.run {
-                    eyeAnimator.updateBurnRate(tokensPerSecond: status.tokensPerSecond)
-                }
-            }
-        }
-    }
-
     @objc private func togglePopover() {
         if let button = statusItem.button {
             if popover.isShown {
                 popover.performClose(nil)
             } else {
                 popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-                // Bring popover to front
                 NSApp.activate(ignoringOtherApps: true)
             }
         }
@@ -86,7 +75,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         animationTimer?.invalidate()
-        pollTimer?.invalidate()
+        scanner?.stop()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
         }

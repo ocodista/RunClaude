@@ -11,12 +11,12 @@ RunClaude watches your local Claude Code session logs and renders a tiny running
 - Active session list with project and token totals
 - Animated menu bar icon that reflects current activity
 - Zero configuration — reads `~/.claude/projects/` directly
+- Single Swift binary, no background daemon
 
 ## Requirements
 
 - macOS 14+
-- [Bun](https://bun.sh) (for the local server)
-- Xcode command line tools (for the Swift app)
+- Xcode command line tools
 
 ## Run
 
@@ -24,26 +24,24 @@ RunClaude watches your local Claude Code session logs and renders a tiny running
 ./start.sh
 ```
 
-This kills anything on port 17888, starts the Bun server, builds the Swift app, and opens it. The menu bar icon appears within a second.
+This compiles the Swift app and launches it. The menu bar icon appears within a second.
 
 ## Architecture
 
-Two processes talk over `localhost:17888`:
+One process, one binary:
 
-- **`server/`** — Bun + TypeScript. Tails JSONL files in `~/.claude/projects/`, aggregates usage, and serves `GET /status`.
-- **`app/RunClaude/`** — SwiftUI menu bar app. Polls the server and animates the icon.
+- **`app/RunClaude/BurnRateEngine.swift`** — aggregates usage, computes tokens/second, per-model costs.
+- **`app/RunClaude/SessionScanner.swift`** — tails JSONL files in `~/.claude/projects/` with incremental offsets.
+- **`app/RunClaude/EyeRenderer.swift`** — draws the animated stick figure into the menu bar icon.
+- **`app/RunClaude/PopoverView.swift`** — SwiftUI popover with the stats dashboard.
 
-## Roadmap: single-binary Swift app
+The scanner polls every 2 seconds and reads only the new bytes appended to each file since the last read.
 
-The current split (Bun server + Swift app) is great for iteration but blocks App Store distribution. Sandboxed apps cannot spawn a Bun subprocess or reach `~/.claude/projects/` without an entitlement.
+## Roadmap
 
-The plan is to fold the server logic into the Swift app:
-
-- Port `SessionScanner` and `BurnRateCalculator` to Swift (`FileManager` + `DispatchSource` for file watching).
-- Drop the HTTP layer — the UI reads the calculator directly.
-- Ship a single signed `.app` through the App Store, or a notarized `.dmg` for direct download.
-
-Until then, the `.sh` launcher and Bun server stay as the dev workflow.
+- App Store submission (sandbox + user-selected folder access for `~/.claude/projects/`)
+- Notarized `.dmg` for direct download
+- Configurable window size and pricing overrides
 
 ## License
 
