@@ -1,14 +1,16 @@
 import SwiftUI
 
 enum DetailTab: String, CaseIterable, Identifiable {
-    case models = "Models"
-    case sessions = "Sessions"
+    case models    = "Models"
+    case sessions  = "Sessions"
+    case analytics = "Analytics"
     var id: String { rawValue }
 
     var icon: String {
         switch self {
-        case .models:   return "cpu"
-        case .sessions: return "terminal.fill"
+        case .models:    return "cpu"
+        case .sessions:  return "terminal.fill"
+        case .analytics: return "chart.bar.fill"
         }
     }
 }
@@ -18,6 +20,7 @@ struct PopoverView: View {
     @ObservedObject var eyeAnimator: EyeAnimator
 
     @State private var detailTab: DetailTab = .models
+    @State private var expandedSessionId: String? = nil
 
     private var effectiveState: EyeActivityState {
         eyeAnimator.forcedState ?? eyeAnimator.currentState
@@ -127,7 +130,6 @@ struct PopoverView: View {
 
     private func summaryView(status: StatusSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Counting-since line
             HStack(spacing: 5) {
                 Image(systemName: "clock")
                     .font(.system(size: 10))
@@ -154,10 +156,10 @@ struct PopoverView: View {
                     value: formatTokenCount(status.totalTokens)
                 )
                 statCard(
-                    icon: "terminal.fill",
-                    iconColor: .purple,
-                    label: "Sessions",
-                    value: "\(status.totalSessions)"
+                    icon: "dollarsign.circle.fill",
+                    iconColor: .green,
+                    label: "Est. Cost",
+                    value: formatCost(status.totalCostUSD)
                 )
             }
         }
@@ -234,6 +236,8 @@ struct PopoverView: View {
             modelsView(status: status)
         case .sessions:
             sessionsView(status: status)
+        case .analytics:
+            analyticsView(status: status)
         }
     }
 
@@ -275,7 +279,6 @@ struct PopoverView: View {
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
             }
 
-            // Share bar
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2)
@@ -354,7 +357,7 @@ struct PopoverView: View {
                 Image(systemName: "folder")
                     .font(.system(size: 8))
                     .foregroundStyle(.tertiary)
-                Text(session.project)
+                Text(session.project.isEmpty ? "unknown" : session.project)
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
@@ -365,6 +368,27 @@ struct PopoverView: View {
                 Text("tokens")
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
+            }
+
+            HStack(spacing: 4) {
+                Image(systemName: "clock")
+                    .font(.system(size: 8))
+                    .foregroundStyle(.tertiary)
+                Text(session.duration < 5 ? "< 5s" : formatElapsed(session.duration))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 4)
+                Text(formatCost(session.estimatedCostUSD))
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundStyle(.green)
+                if session.errorCount > 0 {
+                    Text("·")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.tertiary)
+                    Text("⚠\(session.errorCount)")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.red)
+                }
             }
         }
         .padding(.horizontal, 10)
@@ -381,7 +405,223 @@ struct PopoverView: View {
         model.replacingOccurrences(of: "claude-", with: "")
     }
 
-    // MARK: - Empty / Disconnected
+    // MARK: - Analytics tab
+
+    private func analyticsView(status: StatusSnapshot) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 10) {
+                analyticsMetricsSection(status: status)
+                if !status.topTools.isEmpty {
+                    analyticsToolsSection(topTools: status.topTools)
+                }
+                analyticsSessionsSection(sessions: status.allSessions)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        }
+        .frame(maxHeight: 260)
+    }
+
+    private func analyticsMetricsSection(status: StatusSnapshot) -> some View {
+        let totalErrors = status.allSessions.reduce(0) { $0 + $1.errorCount }
+        let totalTools  = status.allSessions.reduce(0) { $0 + $1.totalToolCalls }
+        let avgDur: TimeInterval = status.allSessions.isEmpty ? 0 :
+            status.allSessions.reduce(0.0) { $0 + $1.duration } / Double(status.allSessions.count)
+
+        return HStack(spacing: 6) {
+            analyticsStat(label: "Est. Cost",  value: formatCost(status.totalCostUSD), color: .green)
+            analyticsStat(label: "Tool Calls", value: "\(totalTools)",                 color: .orange)
+            analyticsStat(label: "Errors",     value: "\(totalErrors)",
+                          color: totalErrors > 0 ? .red : .secondary)
+            analyticsStat(label: "Avg Session",
+                          value: avgDur < 5 ? "—" : formatElapsed(avgDur),
+                          color: .blue)
+        }
+    }
+
+    private func analyticsStat(label: String, value: String, color: Color) -> some View {
+        VStack(spacing: 3) {
+            Text(value)
+                .font(.system(.callout, design: .monospaced, weight: .semibold))
+                .foregroundStyle(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(label)
+                .font(.system(size: 8, weight: .medium))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.08)))
+    }
+
+    private func analyticsToolsSection(topTools: [ToolStat]) -> some View {
+        let maxCount = topTools.first?.count ?? 1
+        return VStack(alignment: .leading, spacing: 5) {
+            analyticsSectionLabel("TOP TOOLS")
+            ForEach(Array(topTools.prefix(6))) { tool in
+                toolStatRow(tool: tool, maxCount: maxCount)
+            }
+        }
+    }
+
+    private func toolStatRow(tool: ToolStat, maxCount: Int) -> some View {
+        HStack(spacing: 8) {
+            Text(tool.name)
+                .font(.system(size: 10, design: .monospaced))
+                .frame(width: 72, alignment: .leading)
+                .lineLimit(1)
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.secondary.opacity(0.12))
+                    RoundedRectangle(cornerRadius: 2)
+                        .fill(Color.accentColor.opacity(0.55))
+                        .frame(width: max(2, geo.size.width * Double(tool.count) / Double(max(1, maxCount))))
+                }
+            }
+            .frame(height: 5)
+            Text("\(tool.count)")
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .frame(width: 32, alignment: .trailing)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func analyticsSessionsSection(sessions: [SessionInfo]) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            analyticsSectionLabel("SESSIONS (\(sessions.count))")
+            if sessions.isEmpty {
+                Text("No sessions yet")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(sessions) { session in
+                    analyticsSessionRow(session)
+                }
+            }
+        }
+    }
+
+    private func analyticsSessionRow(_ session: SessionInfo) -> some View {
+        let isExpanded = expandedSessionId == session.id
+        return VStack(alignment: .leading, spacing: 2) {
+            Button {
+                expandedSessionId = isExpanded ? nil : session.id
+            } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Circle()
+                            .fill(modelColor(session.model))
+                            .frame(width: 6, height: 6)
+                        Text(sessionTitle(session))
+                            .font(.system(.caption, design: .monospaced, weight: .semibold))
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        if session.errorCount > 0 {
+                            Text("⚠\(session.errorCount)")
+                                .font(.system(size: 9, weight: .semibold))
+                                .foregroundStyle(.red)
+                        }
+                        Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 8))
+                            .foregroundStyle(.tertiary)
+                    }
+                    HStack(spacing: 6) {
+                        Text(session.project.isEmpty ? "unknown" : session.project)
+                            .font(.system(size: 10))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(session.duration < 5 ? "< 5s" : formatElapsed(session.duration))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 10))
+                        Text(formatCost(session.estimatedCostUSD))
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.green)
+                        if session.totalToolCalls > 0 {
+                            Text("·")
+                                .foregroundStyle(.tertiary)
+                                .font(.system(size: 10))
+                            Text("\(session.totalToolCalls)t")
+                                .font(.system(size: 10, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                analyticsSessionDetail(session)
+            }
+        }
+    }
+
+    private func analyticsSessionDetail(_ session: SessionInfo) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if session.toolCounts.isEmpty {
+                Text("No tool calls recorded")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+            } else {
+                let tools = session.topTools
+                ForEach(tools) { tool in
+                    HStack {
+                        Text(tool.name)
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Text("\(tool.count) call\(tool.count == 1 ? "" : "s")")
+                            .font(.system(size: 10, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                if session.totalToolCalls > session.topTools.reduce(0, { $0 + $1.count }) {
+                    Text("+ \(session.totalToolCalls - session.topTools.reduce(0, { $0 + $1.count })) more")
+                        .font(.system(size: 9))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            HStack {
+                Text("In: \(formatTokenCount(session.totalInputTokens))  Out: \(formatTokenCount(session.totalOutputTokens))")
+                    .font(.system(size: 9, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+                Spacer()
+                if session.errorCount > 0 {
+                    Text("\(session.errorCount) error\(session.errorCount == 1 ? "" : "s")")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 6)
+            .fill(Color.secondary.opacity(0.04))
+            .padding(.horizontal, 4))
+    }
+
+    private func analyticsSectionLabel(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(.tertiary)
+            .padding(.bottom, 1)
+    }
+
+    // MARK: - Empty / Loading
 
     private func emptyDetailView(icon: String, text: String) -> some View {
         VStack(spacing: 6) {
@@ -508,9 +748,16 @@ struct PopoverView: View {
         return String(format: "%.2fM", Double(count) / 1_000_000)
     }
 
+    private func formatCost(_ usd: Double) -> String {
+        if usd < 0.0001 { return "$0.00" }
+        if usd < 0.01   { return String(format: "$%.4f", usd) }
+        if usd < 1.0    { return String(format: "$%.3f", usd) }
+        return String(format: "$%.2f", usd)
+    }
+
     private func formatElapsed(_ seconds: TimeInterval) -> String {
         let s = Int(seconds)
-        if s < 60  { return "\(s)s" }
+        if s < 60   { return "\(s)s" }
         if s < 3600 { return "\(s / 60)m" }
         let h = s / 3600
         let m = (s % 3600) / 60

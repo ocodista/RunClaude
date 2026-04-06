@@ -19,9 +19,39 @@ final class SessionScanner {
         let cache_read_input_tokens: Int?
     }
 
+    private struct JSONLContentBlock: Decodable {
+        let type: String
+        let name: String?         // tool_use: tool name (Bash, Read, etc.)
+        let id: String?           // tool_use: unique call id
+        let tool_use_id: String?  // tool_result: references the originating call
+        let is_error: Bool?       // tool_result: true when the tool returned an error
+    }
+
+    // Claude Code JSONL `content` fields are either a plain string (user text)
+    // or an array of typed blocks (tool_use / tool_result / text).
+    private enum JSONLContent: Decodable {
+        case text(String)
+        case blocks([JSONLContentBlock])
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.singleValueContainer()
+            if let blocks = try? c.decode([JSONLContentBlock].self) {
+                self = .blocks(blocks)
+            } else {
+                self = .text((try? c.decode(String.self)) ?? "")
+            }
+        }
+
+        var blocks: [JSONLContentBlock] {
+            if case .blocks(let b) = self { return b }
+            return []
+        }
+    }
+
     private struct JSONLMessage: Decodable {
         let model: String?
         let usage: JSONLUsage?
+        let content: JSONLContent?
     }
 
     private struct JSONLEntry: Decodable {
@@ -182,35 +212,53 @@ final class SessionScanner {
             engine.updateSessionMeta(sessionId: entry.sessionId, slug: slug, project: project)
         }
 
-        guard entry.type == "assistant",
-              let usage = entry.message?.usage else { return }
-
-        let input       = usage.input_tokens ?? 0
-        let output      = usage.output_tokens ?? 0
-        let cacheCreate = usage.cache_creation_input_tokens ?? 0
-        let cacheRead   = usage.cache_read_input_tokens ?? 0
-        let total       = input + output + cacheCreate + cacheRead
-        if total == 0 { return }
-
         let timestamp = Self.isoWithFraction.date(from: entry.timestamp)
             ?? Self.isoPlain.date(from: entry.timestamp)
             ?? Date()
 
-        let event = TokenEvent(
-            timestamp: timestamp,
-            tokens: total,
-            usage: TokenUsage(
-                inputTokens: input,
-                outputTokens: output,
-                cacheCreationTokens: cacheCreate,
-                cacheReadTokens: cacheRead
-            ),
-            model: entry.message?.model ?? "unknown",
-            sessionId: entry.sessionId
-        )
-        engine.addEvent(event)
+        switch entry.type {
+        case "assistant":
+            // Token accounting
+            if let usage = entry.message?.usage {
+                let input       = usage.input_tokens ?? 0
+                let output      = usage.output_tokens ?? 0
+                let cacheCreate = usage.cache_creation_input_tokens ?? 0
+                let cacheRead   = usage.cache_read_input_tokens ?? 0
+                let total       = input + output + cacheCreate + cacheRead
+                if total > 0 {
+                    engine.addEvent(TokenEvent(
+                        timestamp: timestamp,
+                        tokens: total,
+                        usage: TokenUsage(
+                            inputTokens: input,
+                            outputTokens: output,
+                            cacheCreationTokens: cacheCreate,
+                            cacheReadTokens: cacheRead
+                        ),
+                        model: entry.message?.model ?? "unknown",
+                        sessionId: entry.sessionId
+                    ))
+                    // First event for this session won't have a project yet — backfill.
+                    engine.updateSessionMeta(sessionId: entry.sessionId, slug: "", project: project)
+                }
+            }
+            // Tool call tracking from assistant message content blocks
+            for block in entry.message?.content?.blocks ?? [] where block.type == "tool_use" {
+                if let name = block.name {
+                    engine.addToolCall(sessionId: entry.sessionId, toolName: name)
+                }
+            }
 
-        // First event for this session won't have a project yet — backfill.
-        engine.updateSessionMeta(sessionId: entry.sessionId, slug: "", project: project)
+        case "user":
+            // Error tracking: tool_result blocks with is_error == true
+            for block in entry.message?.content?.blocks ?? [] where block.type == "tool_result" {
+                if block.is_error == true {
+                    engine.addToolError(sessionId: entry.sessionId)
+                }
+            }
+
+        default:
+            break
+        }
     }
 }

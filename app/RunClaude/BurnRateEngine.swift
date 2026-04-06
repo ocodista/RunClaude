@@ -28,10 +28,19 @@ struct SessionInfo: Identifiable {
     var totalCacheReadTokens: Int
     var firstSeen: Date
     var lastSeen: Date
+    var toolCounts: [String: Int] = [:]
+    var errorCount: Int = 0
+    var estimatedCostUSD: Double = 0.0
 
     var id: String { sessionId }
+
     var totalTokens: Int {
         totalInputTokens + totalOutputTokens + totalCacheCreationTokens + totalCacheReadTokens
+    }
+    var duration: TimeInterval { lastSeen.timeIntervalSince(firstSeen) }
+    var totalToolCalls: Int { toolCounts.values.reduce(0, +) }
+    var topTools: [ToolStat] {
+        toolCounts.sorted { $0.value > $1.value }.prefix(5).map { ToolStat(name: $0.key, count: $0.value) }
     }
 }
 
@@ -47,6 +56,12 @@ struct ModelBreakdown: Identifiable {
     var id: String { model }
 }
 
+struct ToolStat: Identifiable {
+    let name: String
+    var count: Int
+    var id: String { name }
+}
+
 struct StatusSnapshot {
     let serverStartedAt: Date
     let tokensPerSecond: Double
@@ -55,6 +70,9 @@ struct StatusSnapshot {
     let totalSessions: Int
     let activeSessions: [SessionInfo]
     let modelBreakdown: [ModelBreakdown]
+    let totalCostUSD: Double
+    let allSessions: [SessionInfo]
+    let topTools: [ToolStat]
 }
 
 // MARK: - Engine
@@ -75,6 +93,18 @@ final class BurnRateEngine: ObservableObject {
         pruneEvents()
     }
 
+    func addToolCall(sessionId: String, toolName: String) {
+        guard var session = sessions[sessionId] else { return }
+        session.toolCounts[toolName, default: 0] += 1
+        sessions[sessionId] = session
+    }
+
+    func addToolError(sessionId: String) {
+        guard var session = sessions[sessionId] else { return }
+        session.errorCount += 1
+        sessions[sessionId] = session
+    }
+
     func updateSessionMeta(sessionId: String, slug: String, project: String) {
         guard var session = sessions[sessionId] else { return }
         if !slug.isEmpty    { session.slug = slug }
@@ -92,16 +122,43 @@ final class BurnRateEngine: ObservableObject {
             totalTokens: totalTokens(),
             totalSessions: sessions.count,
             activeSessions: activeSessions(),
-            modelBreakdown: modelBreakdown()
+            modelBreakdown: modelBreakdown(),
+            totalCostUSD: sessions.values.reduce(0) { $0 + $1.estimatedCostUSD },
+            allSessions: allSessions(),
+            topTools: aggregatedTopTools()
         )
     }
 
+    // MARK: - Cost estimation (Anthropic pricing, per million tokens)
+    // Rates: input / output / cache-write / cache-read
+    // Opus: $15 / $75 / $18.75 / $1.50
+    // Sonnet (default): $3 / $15 / $3.75 / $0.30
+    // Haiku: $0.80 / $4 / $1.00 / $0.08
+
+    static func estimateCostUSD(model: String, usage: TokenUsage) -> Double {
+        let lower = model.lowercased()
+        var inputRate = 3.0, outputRate = 15.0, cacheWriteRate = 3.75, cacheReadRate = 0.30
+        if lower.contains("opus") {
+            (inputRate, outputRate, cacheWriteRate, cacheReadRate) = (15.0, 75.0, 18.75, 1.50)
+        } else if lower.contains("haiku") {
+            (inputRate, outputRate, cacheWriteRate, cacheReadRate) = (0.80, 4.0, 1.00, 0.08)
+        }
+        return (Double(usage.inputTokens)         * inputRate      +
+                Double(usage.outputTokens)        * outputRate     +
+                Double(usage.cacheCreationTokens) * cacheWriteRate +
+                Double(usage.cacheReadTokens)     * cacheReadRate) / 1_000_000
+    }
+
+    // MARK: - Private
+
     private func updateSession(with event: TokenEvent) {
+        let cost = Self.estimateCostUSD(model: event.model, usage: event.usage)
         if var existing = sessions[event.sessionId] {
             existing.totalInputTokens         += event.usage.inputTokens
             existing.totalOutputTokens        += event.usage.outputTokens
             existing.totalCacheCreationTokens += event.usage.cacheCreationTokens
             existing.totalCacheReadTokens     += event.usage.cacheReadTokens
+            existing.estimatedCostUSD         += cost
             existing.lastSeen = event.timestamp
             existing.model = event.model
             sessions[event.sessionId] = existing
@@ -116,7 +173,8 @@ final class BurnRateEngine: ObservableObject {
                 totalCacheCreationTokens: event.usage.cacheCreationTokens,
                 totalCacheReadTokens: event.usage.cacheReadTokens,
                 firstSeen: event.timestamp,
-                lastSeen: event.timestamp
+                lastSeen: event.timestamp,
+                estimatedCostUSD: cost
             )
         }
     }
@@ -145,6 +203,22 @@ final class BurnRateEngine: ObservableObject {
         return sessions.values
             .filter { $0.lastSeen > cutoff }
             .sorted { $0.lastSeen > $1.lastSeen }
+    }
+
+    private func allSessions() -> [SessionInfo] {
+        sessions.values.sorted { $0.lastSeen > $1.lastSeen }
+    }
+
+    private func aggregatedTopTools() -> [ToolStat] {
+        var totals: [String: Int] = [:]
+        for session in sessions.values {
+            for (name, count) in session.toolCounts {
+                totals[name, default: 0] += count
+            }
+        }
+        return totals.sorted { $0.value > $1.value }
+            .prefix(10)
+            .map { ToolStat(name: $0.key, count: $0.value) }
     }
 
     private func modelBreakdown() -> [ModelBreakdown] {
