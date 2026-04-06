@@ -19,12 +19,20 @@ final class SessionScanner {
         let cache_read_input_tokens: Int?
     }
 
+    // Bash tool passes {"command": "..."}, other tools have different shapes.
+    // We only capture `command` and ignore everything else.
+    private struct JSONLToolInput: Decodable {
+        let command: String?
+    }
+
     private struct JSONLContentBlock: Decodable {
         let type: String
-        let name: String?         // tool_use: tool name (Bash, Read, etc.)
+        let name: String?         // tool_use: tool name (Bash, Read, Agent, mcp__*, …)
         let id: String?           // tool_use: unique call id
         let tool_use_id: String?  // tool_result: references the originating call
-        let is_error: Bool?       // tool_result: true when the tool returned an error
+        let is_error: Bool?       // tool_result: true when tool returned an error
+        let input: JSONLToolInput? // tool_use: parsed input (Bash command only)
+        let text: String?         // text block: the actual text content
     }
 
     // Claude Code JSONL `content` fields are either a plain string (user text)
@@ -46,6 +54,14 @@ final class SessionScanner {
             if case .blocks(let b) = self { return b }
             return []
         }
+
+        // Returns the first text content (string body or first text block).
+        var firstText: String? {
+            switch self {
+            case .text(let s): return s.isEmpty ? nil : s
+            case .blocks(let blocks): return blocks.first(where: { $0.type == "text" })?.text
+            }
+        }
     }
 
     private struct JSONLMessage: Decodable {
@@ -65,6 +81,9 @@ final class SessionScanner {
     private static let pollInterval: TimeInterval = 2.0
     private static let rescanInterval: TimeInterval = 10.0
     private static let initialTailBytes: UInt64 = 50_000
+    // Idle gap thresholds: between 2 min and 2 hours = deliberate pause
+    private static let idleMinGap: TimeInterval = 120
+    private static let idleMaxGap: TimeInterval = 7200
 
     private static let isoWithFraction: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
@@ -78,6 +97,8 @@ final class SessionScanner {
     private var tracked: [String: TrackedFile] = [:]
     private var pollTimer: Timer?
     private var rescanTimer: Timer?
+    // Last-seen timestamp per session, used to compute idle gaps in-stream.
+    private var lastTimestamps: [String: Date] = [:]
 
     init(engine: BurnRateEngine) {
         self.engine = engine
@@ -216,6 +237,15 @@ final class SessionScanner {
             ?? Self.isoPlain.date(from: entry.timestamp)
             ?? Date()
 
+        // Compute idle gap from the previous message in this session.
+        let idleGap: TimeInterval
+        if let last = lastTimestamps[entry.sessionId] {
+            idleGap = timestamp.timeIntervalSince(last)
+        } else {
+            idleGap = 0
+        }
+        lastTimestamps[entry.sessionId] = timestamp
+
         switch entry.type {
         case "assistant":
             // Token accounting
@@ -242,15 +272,28 @@ final class SessionScanner {
                     engine.updateSessionMeta(sessionId: entry.sessionId, slug: "", project: project)
                 }
             }
-            // Tool call tracking from assistant message content blocks
+            // Turn count + idle gap
+            engine.recordTurn(sessionId: entry.sessionId, isUser: false, idleGap: idleGap)
+            // Tool calls from assistant message content
             for block in entry.message?.content?.blocks ?? [] where block.type == "tool_use" {
                 if let name = block.name {
-                    engine.addToolCall(sessionId: entry.sessionId, toolName: name)
+                    engine.addToolCall(
+                        sessionId: entry.sessionId,
+                        toolName: name,
+                        bashCommand: name == "Bash" ? block.input?.command : nil
+                    )
                 }
             }
 
         case "user":
-            // Error tracking: tool_result blocks with is_error == true
+            // Turn count + idle gap
+            engine.recordTurn(sessionId: entry.sessionId, isUser: true, idleGap: idleGap)
+            // Slash command detection from user message text
+            if let text = entry.message?.content?.firstText, text.hasPrefix("/") {
+                let command = String(text.split(separator: " ").first ?? Substring(text))
+                engine.addCommand(sessionId: entry.sessionId, command: command)
+            }
+            // Error tracking from tool_result blocks
             for block in entry.message?.content?.blocks ?? [] where block.type == "tool_result" {
                 if block.is_error == true {
                     engine.addToolError(sessionId: entry.sessionId)

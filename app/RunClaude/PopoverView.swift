@@ -143,24 +143,14 @@ struct PopoverView: View {
             }
 
             HStack(spacing: 8) {
-                statCard(
-                    icon: "flame.fill",
-                    iconColor: .orange,
-                    label: "Burn Rate",
-                    value: formatTokenRate(status.tokensPerSecond)
-                )
-                statCard(
-                    icon: "number",
-                    iconColor: .blue,
-                    label: "Tokens",
-                    value: formatTokenCount(status.totalTokens)
-                )
-                statCard(
-                    icon: "dollarsign.circle.fill",
-                    iconColor: .green,
-                    label: "Est. Cost",
-                    value: formatCost(status.totalCostUSD)
-                )
+                statCard(icon: "flame.fill",           iconColor: .orange, label: "Burn Rate",
+                         value: formatTokenRate(status.tokensPerSecond))
+                statCard(icon: "number",               iconColor: .blue,   label: "Tokens",
+                         value: formatTokenCount(status.totalTokens))
+                statCard(icon: "dollarsign.circle.fill", iconColor: .green, label: "Est. Cost",
+                         value: formatCost(status.totalCostUSD))
+                statCard(icon: "terminal.fill",        iconColor: .purple, label: "Sessions",
+                         value: "\(status.totalSessions)")
             }
         }
         .padding(.horizontal, 16)
@@ -232,12 +222,9 @@ struct PopoverView: View {
     @ViewBuilder
     private func detailContent(status: StatusSnapshot) -> some View {
         switch detailTab {
-        case .models:
-            modelsView(status: status)
-        case .sessions:
-            sessionsView(status: status)
-        case .analytics:
-            analyticsView(status: status)
+        case .models:    modelsView(status: status)
+        case .sessions:  sessionsView(status: status)
+        case .analytics: analyticsView(status: status)
         }
     }
 
@@ -280,10 +267,8 @@ struct PopoverView: View {
 
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.secondary.opacity(0.12))
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(modelColor(m.model))
+                    RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.12))
+                    RoundedRectangle(cornerRadius: 2).fill(modelColor(m.model))
                         .frame(width: max(2, geo.size.width * share))
                 }
             }
@@ -291,12 +276,10 @@ struct PopoverView: View {
 
             HStack(spacing: 6) {
                 Text("\(m.sessionCount) session\(m.sessionCount == 1 ? "" : "s")")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10)).foregroundStyle(.secondary)
                 Spacer()
                 Text("\(Int((share * 100).rounded()))%")
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
             }
         }
         .padding(.horizontal, 10)
@@ -322,9 +305,7 @@ struct PopoverView: View {
             } else {
                 ScrollView {
                     VStack(spacing: 6) {
-                        ForEach(status.activeSessions) { s in
-                            sessionCard(s)
-                        }
+                        ForEach(status.activeSessions) { s in sessionCard(s) }
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
@@ -335,57 +316,63 @@ struct PopoverView: View {
 
     private func sessionCard(_ session: SessionInfo) -> some View {
         VStack(alignment: .leading, spacing: 5) {
+            // Row 1: name + model badge
             HStack(spacing: 6) {
-                Circle()
-                    .fill(modelColor(session.model))
-                    .frame(width: 7, height: 7)
+                Circle().fill(modelColor(session.model)).frame(width: 7, height: 7)
                 Text(sessionTitle(session))
-                    .font(.system(.caption, design: .monospaced, weight: .semibold))
-                    .lineLimit(1)
+                    .font(.system(.caption, design: .monospaced, weight: .semibold)).lineLimit(1)
                 Spacer(minLength: 4)
                 Text(shortModelName(session.model))
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
+                    .font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 5).padding(.vertical, 2)
                     .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.15)))
             }
-
+            // Row 2: project + tokens
             HStack(spacing: 4) {
-                Image(systemName: "folder")
-                    .font(.system(size: 8))
-                    .foregroundStyle(.tertiary)
+                Image(systemName: "folder").font(.system(size: 8)).foregroundStyle(.tertiary)
                 Text(session.project.isEmpty ? "unknown" : session.project)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                    .font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
                 Spacer(minLength: 4)
                 Text(formatTokenCount(session.totalTokens))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                Text("tokens")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                Text("tokens").font(.system(size: 10)).foregroundStyle(.tertiary)
             }
-
+            // Row 3: duration + cost + errors
             HStack(spacing: 4) {
-                Image(systemName: "clock")
-                    .font(.system(size: 8))
-                    .foregroundStyle(.tertiary)
+                Image(systemName: "clock").font(.system(size: 8)).foregroundStyle(.tertiary)
                 Text(session.duration < 5 ? "< 5s" : formatElapsed(session.duration))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                 Spacer(minLength: 4)
                 Text(formatCost(session.estimatedCostUSD))
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.green)
+                    .font(.system(size: 10, design: .monospaced)).foregroundStyle(.green)
                 if session.errorCount > 0 {
-                    Text("·")
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
+                    Text("·").font(.system(size: 10)).foregroundStyle(.tertiary)
                     Text("⚠\(session.errorCount)")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.red)
+                        .font(.system(size: 9, weight: .semibold)).foregroundStyle(.red)
+                }
+            }
+            // Row 4: signals (commits / PRs / MCP / agents / human ratio)
+            let hasSig = session.commitCount + session.prCount + session.mcpCallCount +
+                         session.agentSpawnCount + session.totalTurns > 0
+            if hasSig {
+                HStack(spacing: 8) {
+                    if session.commitCount > 0 {
+                        signalBadge(icon: "arrow.triangle.branch", label: "\(session.commitCount) commit\(session.commitCount == 1 ? "" : "s")", color: .orange)
+                    }
+                    if session.prCount > 0 {
+                        signalBadge(icon: "arrow.triangle.merge", label: "\(session.prCount) PR\(session.prCount == 1 ? "" : "s")", color: .purple)
+                    }
+                    if session.mcpCallCount > 0 {
+                        signalBadge(icon: "network", label: "\(session.mcpCallCount) MCP", color: .blue)
+                    }
+                    if session.agentSpawnCount > 0 {
+                        signalBadge(icon: "person.2.fill", label: "\(session.agentSpawnCount) agent\(session.agentSpawnCount == 1 ? "" : "s")", color: .teal)
+                    }
+                    Spacer()
+                    if session.totalTurns > 0 {
+                        Text("\(Int((session.humanTurnsRatio * 100).rounded()))% human")
+                            .font(.system(size: 9, design: .monospaced)).foregroundStyle(.tertiary)
+                    }
                 }
             }
         }
@@ -393,6 +380,13 @@ struct PopoverView: View {
         .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
+    }
+
+    private func signalBadge(icon: String, label: String, color: Color) -> some View {
+        HStack(spacing: 3) {
+            Image(systemName: icon).font(.system(size: 8)).foregroundStyle(color)
+            Text(label).font(.system(size: 9)).foregroundStyle(.secondary)
+        }
     }
 
     private func sessionTitle(_ session: SessionInfo) -> String {
@@ -407,11 +401,10 @@ struct PopoverView: View {
 
     private func analyticsView(status: StatusSnapshot) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 12) {
                 analyticsMetricsSection(status: status)
-                if !status.topTools.isEmpty {
-                    analyticsToolsSection(topTools: status.topTools)
-                }
+                if !status.topTools.isEmpty    { analyticsBarSection(title: "TOP TOOLS",    stats: status.topTools) }
+                if !status.topCommands.isEmpty { analyticsBarSection(title: "TOP COMMANDS", stats: status.topCommands, barColor: .purple) }
                 analyticsSessionsSection(sessions: status.allSessions)
             }
             .padding(.horizontal, 12)
@@ -420,19 +413,39 @@ struct PopoverView: View {
     }
 
     private func analyticsMetricsSection(status: StatusSnapshot) -> some View {
-        let totalErrors = status.allSessions.reduce(0) { $0 + $1.errorCount }
-        let totalTools  = status.allSessions.reduce(0) { $0 + $1.totalToolCalls }
-        let avgDur: TimeInterval = status.allSessions.isEmpty ? 0 :
-            status.allSessions.reduce(0.0) { $0 + $1.duration } / Double(status.allSessions.count)
+        let s = status
+        let allS = s.allSessions
+        let totalErrors = allS.reduce(0) { $0 + $1.errorCount }
+        let totalTools  = allS.reduce(0) { $0 + $1.totalToolCalls }
+        let avgDur: TimeInterval = allS.isEmpty ? 0 :
+            allS.reduce(0.0) { $0 + $1.duration } / Double(allS.count)
+        let avgHuman: Double = allS.filter({ $0.totalTurns > 0 }).isEmpty ? 0 :
+            allS.filter({ $0.totalTurns > 0 }).reduce(0.0) { $0 + $1.humanTurnsRatio } /
+            Double(allS.filter({ $0.totalTurns > 0 }).count)
 
-        return HStack(spacing: 6) {
-            analyticsStat(label: "Est. Cost",  value: formatCost(status.totalCostUSD), color: .green)
-            analyticsStat(label: "Tool Calls", value: "\(totalTools)",                 color: .orange)
-            analyticsStat(label: "Errors",     value: "\(totalErrors)",
-                          color: totalErrors > 0 ? .red : .secondary)
-            analyticsStat(label: "Avg Session",
-                          value: avgDur < 5 ? "—" : formatElapsed(avgDur),
-                          color: .blue)
+        return VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                analyticsStat(label: "Est. Cost",   value: formatCost(s.totalCostUSD),      color: .green)
+                analyticsStat(label: "Tool Calls",  value: "\(totalTools)",                  color: .orange)
+                analyticsStat(label: "Errors",      value: "\(totalErrors)",
+                              color: totalErrors > 0 ? .red : .secondary)
+                analyticsStat(label: "Avg Session", value: avgDur < 5 ? "—" : formatElapsed(avgDur), color: .blue)
+            }
+            HStack(spacing: 6) {
+                analyticsStat(label: "Commits",     value: s.totalCommits > 0 ? "\(s.totalCommits)" : "—",    color: .orange)
+                analyticsStat(label: "PRs",         value: s.totalPRs > 0 ? "\(s.totalPRs)" : "—",           color: .purple)
+                analyticsStat(label: "MCP Calls",   value: s.totalMCPCalls > 0 ? "\(s.totalMCPCalls)" : "—", color: .blue)
+                analyticsStat(label: "Agents",      value: s.totalAgentSpawns > 0 ? "\(s.totalAgentSpawns)" : "—",
+                              color: .teal)
+            }
+            if avgHuman > 0 {
+                HStack(spacing: 6) {
+                    analyticsStat(label: "Human Turns",
+                                  value: "\(Int((avgHuman * 100).rounded()))% avg",
+                                  color: .secondary)
+                    Spacer()
+                }
+            }
         }
     }
 
@@ -454,36 +467,34 @@ struct PopoverView: View {
         .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.08)))
     }
 
-    private func analyticsToolsSection(topTools: [ToolStat]) -> some View {
-        let maxCount = topTools.first?.count ?? 1
+    private func analyticsBarSection(title: String, stats: [ToolStat], barColor: Color = .accentColor) -> some View {
+        let maxCount = stats.first?.count ?? 1
         return VStack(alignment: .leading, spacing: 5) {
-            analyticsSectionLabel("TOP TOOLS")
-            ForEach(Array(topTools.prefix(6))) { tool in
-                toolStatRow(tool: tool, maxCount: maxCount)
+            analyticsSectionLabel(title)
+            ForEach(Array(stats.prefix(6))) { stat in
+                statBarRow(stat: stat, maxCount: maxCount, color: barColor)
             }
         }
     }
 
-    private func toolStatRow(tool: ToolStat, maxCount: Int) -> some View {
+    private func statBarRow(stat: ToolStat, maxCount: Int, color: Color) -> some View {
         HStack(spacing: 8) {
-            Text(tool.name)
+            Text(stat.name)
                 .font(.system(size: 10, design: .monospaced))
-                .frame(width: 72, alignment: .leading)
+                .frame(width: 80, alignment: .leading)
                 .lineLimit(1)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.secondary.opacity(0.12))
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.accentColor.opacity(0.55))
-                        .frame(width: max(2, geo.size.width * Double(tool.count) / Double(max(1, maxCount))))
+                    RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.12))
+                    RoundedRectangle(cornerRadius: 2).fill(color.opacity(0.55))
+                        .frame(width: max(2, geo.size.width * Double(stat.count) / Double(max(1, maxCount))))
                 }
             }
             .frame(height: 5)
-            Text("\(tool.count)")
+            Text("\(stat.count)")
                 .font(.system(size: 10, design: .monospaced))
                 .foregroundStyle(.secondary)
-                .frame(width: 32, alignment: .trailing)
+                .frame(width: 36, alignment: .trailing)
         }
         .frame(maxWidth: .infinity)
     }
@@ -493,13 +504,9 @@ struct PopoverView: View {
             analyticsSectionLabel("SESSIONS (\(sessions.count))")
             if sessions.isEmpty {
                 Text("No sessions yet")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 8)
+                    .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
             } else {
-                ForEach(sessions) { session in
-                    analyticsSessionRow(session)
-                }
+                ForEach(sessions) { session in analyticsSessionRow(session) }
             }
         }
     }
@@ -512,44 +519,38 @@ struct PopoverView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
-                        Circle()
-                            .fill(modelColor(session.model))
-                            .frame(width: 6, height: 6)
+                        Circle().fill(modelColor(session.model)).frame(width: 6, height: 6)
                         Text(sessionTitle(session))
-                            .font(.system(.caption, design: .monospaced, weight: .semibold))
-                            .lineLimit(1)
+                            .font(.system(.caption, design: .monospaced, weight: .semibold)).lineLimit(1)
                         Spacer(minLength: 4)
+                        if session.commitCount > 0 {
+                            Text("\(session.commitCount)c")
+                                .font(.system(size: 9, weight: .semibold)).foregroundStyle(.orange)
+                        }
+                        if session.prCount > 0 {
+                            Text("\(session.prCount)pr")
+                                .font(.system(size: 9, weight: .semibold)).foregroundStyle(.purple)
+                        }
                         if session.errorCount > 0 {
                             Text("⚠\(session.errorCount)")
-                                .font(.system(size: 9, weight: .semibold))
-                                .foregroundStyle(.red)
+                                .font(.system(size: 9, weight: .semibold)).foregroundStyle(.red)
                         }
                         Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 8))
-                            .foregroundStyle(.tertiary)
+                            .font(.system(size: 8)).foregroundStyle(.tertiary)
                     }
                     HStack(spacing: 6) {
                         Text(session.project.isEmpty ? "unknown" : session.project)
-                            .font(.system(size: 10))
-                            .foregroundStyle(.tertiary)
-                            .lineLimit(1)
+                            .font(.system(size: 10)).foregroundStyle(.tertiary).lineLimit(1)
                         Spacer()
                         Text(session.duration < 5 ? "< 5s" : formatElapsed(session.duration))
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                            .font(.system(size: 10))
+                            .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                        Text("·").foregroundStyle(.tertiary).font(.system(size: 10))
                         Text(formatCost(session.estimatedCostUSD))
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.green)
+                            .font(.system(size: 10, design: .monospaced)).foregroundStyle(.green)
                         if session.totalToolCalls > 0 {
-                            Text("·")
-                                .foregroundStyle(.tertiary)
-                                .font(.system(size: 10))
+                            Text("·").foregroundStyle(.tertiary).font(.system(size: 10))
                             Text("\(session.totalToolCalls)t")
-                                .font(.system(size: 10, design: .monospaced))
-                                .foregroundStyle(.secondary)
+                                .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -560,48 +561,15 @@ struct PopoverView: View {
             }
             .buttonStyle(.plain)
 
-            if isExpanded {
-                analyticsSessionDetail(session)
-            }
+            if isExpanded { analyticsSessionDetail(session) }
         }
     }
 
     private func analyticsSessionDetail(_ session: SessionInfo) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if session.toolCounts.isEmpty {
-                Text("No tool calls recorded")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-            } else {
-                let tools = session.topTools
-                ForEach(tools) { tool in
-                    HStack {
-                        Text(tool.name)
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                        Text("\(tool.count) call\(tool.count == 1 ? "" : "s")")
-                            .font(.system(size: 10, design: .monospaced))
-                            .foregroundStyle(.tertiary)
-                    }
-                }
-                if session.totalToolCalls > session.topTools.reduce(0, { $0 + $1.count }) {
-                    Text("+ \(session.totalToolCalls - session.topTools.reduce(0, { $0 + $1.count })) more")
-                        .font(.system(size: 9))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            HStack {
-                Text("In: \(formatTokenCount(session.totalInputTokens))  Out: \(formatTokenCount(session.totalOutputTokens))")
-                    .font(.system(size: 9, design: .monospaced))
-                    .foregroundStyle(.tertiary)
-                Spacer()
-                if session.errorCount > 0 {
-                    Text("\(session.errorCount) error\(session.errorCount == 1 ? "" : "s")")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.red)
-                }
-            }
+        VStack(alignment: .leading, spacing: 6) {
+            sessionDetailEffort(session)
+            sessionDetailActions(session)
+            sessionDetailOutput(session)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
@@ -609,6 +577,70 @@ struct PopoverView: View {
         .background(RoundedRectangle(cornerRadius: 6)
             .fill(Color.secondary.opacity(0.04))
             .padding(.horizontal, 4))
+    }
+
+    @ViewBuilder
+    private func sessionDetailEffort(_ session: SessionInfo) -> some View {
+        detailRow(label: "Duration",
+                  value: "\(formatElapsed(session.activeTime)) active · \(formatElapsed(session.idleTime)) idle")
+        if session.totalTurns > 0 {
+            detailRow(label: "Turns",
+                      value: "\(session.userTurnCount) human · \(session.assistantTurnCount) agent (\(Int((session.humanTurnsRatio * 100).rounded()))% human)")
+        }
+        detailRow(label: "Tokens",
+                  value: "↑\(formatTokenCount(session.totalInputTokens)) in · ↓\(formatTokenCount(session.totalOutputTokens)) out")
+    }
+
+    @ViewBuilder
+    private func sessionDetailActions(_ session: SessionInfo) -> some View {
+        let actionParts = [
+            session.mcpCallCount > 0    ? "\(session.mcpCallCount) MCP" : nil,
+            session.agentSpawnCount > 0 ? "\(session.agentSpawnCount) agent\(session.agentSpawnCount == 1 ? "" : "s")" : nil,
+            session.errorCount > 0      ? "\(session.errorCount) error\(session.errorCount == 1 ? "" : "s")" : nil,
+        ].compactMap { $0 }
+        if !actionParts.isEmpty {
+            detailRow(label: "Calls", value: actionParts.joined(separator: " · "))
+        }
+        if !session.commandUsage.isEmpty {
+            detailRow(label: "Commands",
+                      value: session.topCommands.map { "\($0.name)×\($0.count)" }.joined(separator: "  "))
+        }
+    }
+
+    @ViewBuilder
+    private func sessionDetailOutput(_ session: SessionInfo) -> some View {
+        let outputParts = [
+            session.commitCount > 0 ? "\(session.commitCount) commit\(session.commitCount == 1 ? "" : "s")" : nil,
+            session.prCount > 0     ? "\(session.prCount) PR\(session.prCount == 1 ? "" : "s")" : nil,
+        ].compactMap { $0 }
+        if !outputParts.isEmpty {
+            detailRow(label: "Output", value: outputParts.joined(separator: " · "))
+        }
+        if !session.toolCounts.isEmpty {
+            detailRow(label: "Tools", value: toolSummary(session))
+        }
+    }
+
+    private func detailRow(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(.tertiary)
+                .textCase(.uppercase)
+                .frame(width: 60, alignment: .trailing)
+            Text(value)
+                .font(.system(size: 10, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func toolSummary(_ session: SessionInfo) -> String {
+        let tools = session.topTools
+        let rest  = session.totalToolCalls - tools.reduce(0) { $0 + $1.count }
+        var s = tools.map { "\($0.name)×\($0.count)" }.joined(separator: "  ")
+        if rest > 0 { s += "  +\(rest) more" }
+        return s
     }
 
     private func analyticsSectionLabel(_ text: String) -> some View {
@@ -623,12 +655,8 @@ struct PopoverView: View {
     private func emptyDetailView(icon: String, text: String) -> some View {
         VStack(spacing: 6) {
             Spacer()
-            Image(systemName: icon)
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            Text(text)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            Image(systemName: icon).font(.title3).foregroundStyle(.secondary)
+            Text(text).font(.caption).foregroundStyle(.secondary)
             Spacer()
         }
         .frame(maxWidth: .infinity, minHeight: 90)
@@ -637,11 +665,8 @@ struct PopoverView: View {
     private var loadingView: some View {
         VStack(spacing: 8) {
             Spacer()
-            ProgressView()
-                .controlSize(.small)
-            Text("Scanning sessions…")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            ProgressView().controlSize(.small)
+            Text("Scanning sessions…").font(.caption).foregroundStyle(.secondary)
             Spacer()
         }
         .frame(maxWidth: .infinity, minHeight: 120)
@@ -653,20 +678,13 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Debug State")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
+                    .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).textCase(.uppercase)
                 Spacer()
                 if eyeAnimator.forcedState != nil {
-                    Button("Reset") {
-                        eyeAnimator.forcedState = nil
-                    }
-                    .buttonStyle(.plain)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.orange)
+                    Button("Reset") { eyeAnimator.forcedState = nil }
+                        .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(.orange)
                 }
             }
-
             HStack(spacing: 5) {
                 ForEach([EyeActivityState.sleeping, .walking, .running, .working], id: \.self) { state in
                     debugStateButton(state, label: debugLabel(state))
@@ -696,17 +714,12 @@ struct PopoverView: View {
                 Text(info.emoji).font(.system(size: 11))
                 Text(label).font(.system(size: 10, weight: .medium))
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 8).padding(.vertical, 5)
             .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? info.color.opacity(0.2) : Color.secondary.opacity(0.08))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 6)
-                    .stroke(isActive ? info.color : Color.clear, lineWidth: 1)
-            )
+            .background(RoundedRectangle(cornerRadius: 6)
+                .fill(isActive ? info.color.opacity(0.2) : Color.secondary.opacity(0.08)))
+            .overlay(RoundedRectangle(cornerRadius: 6)
+                .stroke(isActive ? info.color : Color.clear, lineWidth: 1))
             .foregroundStyle(isActive ? info.color : Color.primary)
         }
         .buttonStyle(.plain)
@@ -716,16 +729,11 @@ struct PopoverView: View {
 
     private var footerView: some View {
         HStack {
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
-            .font(.caption)
+            Button("Quit") { NSApplication.shared.terminate(nil) }
+                .buttonStyle(.plain).foregroundStyle(.secondary).font(.caption)
             Spacer()
             Text("~/.claude/projects")
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 9, design: .monospaced)).foregroundStyle(.tertiary)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -734,13 +742,13 @@ struct PopoverView: View {
     // MARK: - Formatters
 
     private func formatTokenRate(_ rate: Double) -> String {
-        if rate < 1 { return "0 t/s" }
+        if rate < 1    { return "0 t/s" }
         if rate < 1000 { return String(format: "%.0f t/s", rate) }
         return String(format: "%.1fk t/s", rate / 1000)
     }
 
     private func formatTokenCount(_ count: Int) -> String {
-        if count < 1000 { return "\(count)" }
+        if count < 1000      { return "\(count)" }
         if count < 1_000_000 { return String(format: "%.1fk", Double(count) / 1000) }
         return String(format: "%.2fM", Double(count) / 1_000_000)
     }
@@ -756,8 +764,7 @@ struct PopoverView: View {
         let s = Int(seconds)
         if s < 60   { return "\(s)s" }
         if s < 3600 { return "\(s / 60)m" }
-        let h = s / 3600
-        let m = (s % 3600) / 60
+        let h = s / 3600; let m = (s % 3600) / 60
         return m > 0 ? "\(h)h \(m)m" : "\(h)h"
     }
 }

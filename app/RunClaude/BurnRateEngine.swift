@@ -28,8 +28,26 @@ struct SessionInfo: Identifiable {
     var totalCacheReadTokens: Int
     var firstSeen: Date
     var lastSeen: Date
+
+    // Tool tracking
     var toolCounts: [String: Int] = [:]
     var errorCount: Int = 0
+
+    // Effort signals
+    var userTurnCount: Int = 0
+    var assistantTurnCount: Int = 0
+    var idleTime: TimeInterval = 0.0
+
+    // Action signals
+    var mcpCallCount: Int = 0
+    var agentSpawnCount: Int = 0
+    var commandUsage: [String: Int] = [:]
+
+    // Output signals
+    var commitCount: Int = 0
+    var prCount: Int = 0
+
+    // Cost
     var estimatedCostUSD: Double = 0.0
 
     var id: String { sessionId }
@@ -37,10 +55,17 @@ struct SessionInfo: Identifiable {
     var totalTokens: Int {
         totalInputTokens + totalOutputTokens + totalCacheCreationTokens + totalCacheReadTokens
     }
-    var duration: TimeInterval { lastSeen.timeIntervalSince(firstSeen) }
-    var totalToolCalls: Int { toolCounts.values.reduce(0, +) }
+    var duration: TimeInterval   { lastSeen.timeIntervalSince(firstSeen) }
+    var activeTime: TimeInterval { max(0, duration - idleTime) }
+    var totalToolCalls: Int      { toolCounts.values.reduce(0, +) }
+    var totalTurns: Int          { userTurnCount + assistantTurnCount }
+    var humanTurnsRatio: Double  { totalTurns == 0 ? 0 : Double(userTurnCount) / Double(totalTurns) }
+
     var topTools: [ToolStat] {
         toolCounts.sorted { $0.value > $1.value }.prefix(5).map { ToolStat(name: $0.key, count: $0.value) }
+    }
+    var topCommands: [ToolStat] {
+        commandUsage.sorted { $0.value > $1.value }.prefix(5).map { ToolStat(name: $0.key, count: $0.value) }
     }
 }
 
@@ -70,9 +95,15 @@ struct StatusSnapshot {
     let totalSessions: Int
     let activeSessions: [SessionInfo]
     let modelBreakdown: [ModelBreakdown]
+    // Analytics
     let totalCostUSD: Double
     let allSessions: [SessionInfo]
     let topTools: [ToolStat]
+    let topCommands: [ToolStat]
+    let totalCommits: Int
+    let totalPRs: Int
+    let totalMCPCalls: Int
+    let totalAgentSpawns: Int
 }
 
 // MARK: - Engine
@@ -87,21 +118,51 @@ final class BurnRateEngine: ObservableObject {
     private var events: [TokenEvent] = []
     private var sessions: [String: SessionInfo] = [:]
 
+    // MARK: - Public API
+
     func addEvent(_ event: TokenEvent) {
         events.append(event)
         updateSession(with: event)
         pruneEvents()
     }
 
-    func addToolCall(sessionId: String, toolName: String) {
+    /// Called for every message (user or assistant) to count turns and track idle gaps.
+    func recordTurn(sessionId: String, isUser: Bool, idleGap: TimeInterval) {
+        guard var session = sessions[sessionId] else { return }
+        // Gap between 2 min and 2 hours = intentional pause (idle), not session boundary
+        if idleGap > 120 && idleGap < 7200 { session.idleTime += idleGap }
+        if isUser { session.userTurnCount += 1 } else { session.assistantTurnCount += 1 }
+        sessions[sessionId] = session
+    }
+
+    /// Records a tool_use block. Classifies MCP, Agent, git commit, and gh pr automatically.
+    func addToolCall(sessionId: String, toolName: String, bashCommand: String? = nil) {
         guard var session = sessions[sessionId] else { return }
         session.toolCounts[toolName, default: 0] += 1
+
+        if toolName.contains("__") {
+            session.mcpCallCount += 1
+        } else if toolName == "Agent" {
+            session.agentSpawnCount += 1
+        }
+
+        if let cmd = bashCommand {
+            if cmd.contains("git commit") { session.commitCount += 1 }
+            if cmd.contains("gh pr create") { session.prCount += 1 }
+        }
+
         sessions[sessionId] = session
     }
 
     func addToolError(sessionId: String) {
         guard var session = sessions[sessionId] else { return }
         session.errorCount += 1
+        sessions[sessionId] = session
+    }
+
+    func addCommand(sessionId: String, command: String) {
+        guard var session = sessions[sessionId] else { return }
+        session.commandUsage[command, default: 0] += 1
         sessions[sessionId] = session
     }
 
@@ -115,6 +176,7 @@ final class BurnRateEngine: ObservableObject {
     /// Recomputes the published snapshot. Call after a batch of events.
     func refreshSnapshot() {
         pruneEvents()
+        let all = allSessions()
         status = StatusSnapshot(
             serverStartedAt: startedAt,
             tokensPerSecond: tokensPerSecond(),
@@ -123,9 +185,14 @@ final class BurnRateEngine: ObservableObject {
             totalSessions: sessions.count,
             activeSessions: activeSessions(),
             modelBreakdown: modelBreakdown(),
-            totalCostUSD: sessions.values.reduce(0) { $0 + $1.estimatedCostUSD },
-            allSessions: allSessions(),
-            topTools: aggregatedTopTools()
+            totalCostUSD: all.reduce(0) { $0 + $1.estimatedCostUSD },
+            allSessions: all,
+            topTools: aggregatedTopStats(keyPath: \.toolCounts),
+            topCommands: aggregatedTopStats(keyPath: \.commandUsage),
+            totalCommits: all.reduce(0) { $0 + $1.commitCount },
+            totalPRs: all.reduce(0) { $0 + $1.prCount },
+            totalMCPCalls: all.reduce(0) { $0 + $1.mcpCallCount },
+            totalAgentSpawns: all.reduce(0) { $0 + $1.agentSpawnCount }
         )
     }
 
@@ -209,10 +276,10 @@ final class BurnRateEngine: ObservableObject {
         sessions.values.sorted { $0.lastSeen > $1.lastSeen }
     }
 
-    private func aggregatedTopTools() -> [ToolStat] {
+    private func aggregatedTopStats(keyPath: KeyPath<SessionInfo, [String: Int]>) -> [ToolStat] {
         var totals: [String: Int] = [:]
         for session in sessions.values {
-            for (name, count) in session.toolCounts {
+            for (name, count) in session[keyPath: keyPath] {
                 totals[name, default: 0] += count
             }
         }
