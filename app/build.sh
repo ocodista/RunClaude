@@ -30,6 +30,11 @@ xcrun swiftc \
   RunClaude/PopoverView.swift \
   -o "$APP_DIR/Contents/MacOS/$APP_NAME"
 
+# App icon
+if [ -f AppIcon.icns ]; then
+  cp AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
+fi
+
 # Info.plist
 cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -52,6 +57,8 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
     <string>1</string>
     <key>LSUIElement</key>
     <true/>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>NSHighResolutionCapable</key>
     <true/>
 </dict>

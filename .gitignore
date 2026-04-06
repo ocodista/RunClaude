@@ -1,6 +1,7 @@
 node_modules/
 *.xcodeproj
 build/
+app/AppIcon.iconset/
 .DS_Store
 server/bun.lock
 app/RunClaude_bin

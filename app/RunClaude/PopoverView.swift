@@ -154,10 +154,10 @@ struct PopoverView: View {
                     value: formatTokenCount(status.totalTokens)
                 )
                 statCard(
-                    icon: "dollarsign.circle.fill",
-                    iconColor: .green,
-                    label: "Cost",
-                    value: formatCost(status.estimatedCostUsd)
+                    icon: "terminal.fill",
+                    iconColor: .purple,
+                    label: "Sessions",
+                    value: "\(status.totalSessions)"
                 )
             }
         }
@@ -241,7 +241,7 @@ struct PopoverView: View {
 
     private func modelsView(status: StatusSnapshot) -> some View {
         let models = status.modelBreakdown
-        let totalCost = max(models.map(\.costUsd).reduce(0, +), 0.0001)
+        let totalTokens = max(models.map(\.tokens).reduce(0, +), 1)
 
         return Group {
             if models.isEmpty {
@@ -250,7 +250,7 @@ struct PopoverView: View {
                 ScrollView {
                     VStack(spacing: 6) {
                         ForEach(models) { m in
-                            modelRow(m, share: m.costUsd / totalCost)
+                            modelRow(m, share: Double(m.tokens) / Double(totalTokens))
                         }
                     }
                     .padding(.horizontal, 12)
@@ -271,7 +271,7 @@ struct PopoverView: View {
                     .font(.system(.caption, design: .monospaced, weight: .semibold))
                     .lineLimit(1)
                 Spacer(minLength: 4)
-                Text(formatCost(m.costUsd))
+                Text(formatTokenCount(m.tokens))
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
             }
 
@@ -288,12 +288,6 @@ struct PopoverView: View {
             .frame(height: 4)
 
             HStack(spacing: 6) {
-                Text("\(formatTokenCount(m.tokens)) tokens")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                Text("·")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
                 Text("\(m.sessionCount) session\(m.sessionCount == 1 ? "" : "s")")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -512,12 +506,6 @@ struct PopoverView: View {
         if count < 1000 { return "\(count)" }
         if count < 1_000_000 { return String(format: "%.1fk", Double(count) / 1000) }
         return String(format: "%.2fM", Double(count) / 1_000_000)
-    }
-
-    private func formatCost(_ cost: Double) -> String {
-        if cost < 0.01 { return "$0.00" }
-        if cost < 100  { return String(format: "$%.2f", cost) }
-        return String(format: "$%.0f", cost)
     }
 
     private func formatElapsed(_ seconds: TimeInterval) -> String {
