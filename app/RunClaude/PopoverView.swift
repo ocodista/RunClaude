@@ -49,7 +49,7 @@ struct PopoverView: View {
             Divider()
             footerView
         }
-        .frame(width: 360)
+        .frame(width: 480)
     }
 
     // MARK: - Header
@@ -260,7 +260,6 @@ struct PopoverView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                 }
-                .frame(maxHeight: 200)
             }
         }
     }
@@ -330,7 +329,6 @@ struct PopoverView: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
                 }
-                .frame(maxHeight: 200)
             }
         }
     }
@@ -419,7 +417,6 @@ struct PopoverView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
         }
-        .frame(maxHeight: 260)
     }
 
     private func analyticsMetricsSection(status: StatusSnapshot) -> some View {
