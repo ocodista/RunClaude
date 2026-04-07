@@ -99,8 +99,24 @@ struct DailyStats: Codable, Identifiable {
     var tokens: Int
     var costUSD: Double
     var sessionCount: Int
+    var messageCount: Int
 
     var id: String { date }
+
+    // Custom decoder for backward compat — messageCount missing in old JSON defaults to 0
+    init(date: String, tokens: Int, costUSD: Double, sessionCount: Int, messageCount: Int = 0) {
+        self.date = date; self.tokens = tokens; self.costUSD = costUSD
+        self.sessionCount = sessionCount; self.messageCount = messageCount
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        date         = try c.decode(String.self, forKey: .date)
+        tokens       = try c.decode(Int.self,    forKey: .tokens)
+        costUSD      = try c.decode(Double.self, forKey: .costUSD)
+        sessionCount = try c.decode(Int.self,    forKey: .sessionCount)
+        messageCount = (try? c.decode(Int.self,  forKey: .messageCount)) ?? 0
+    }
 
     var parsedDate: Date { DailyStats.dateFormatter.date(from: date) ?? Date() }
 
@@ -156,6 +172,7 @@ final class BurnRateEngine: ObservableObject {
         var tokens: Int = 0
         var costUSD: Double = 0.0
         var sessions: Set<String> = []
+        var messages: Int = 0
     }
     private var dailyAccum: [String: DayAccum] = [:]
 
@@ -169,11 +186,13 @@ final class BurnRateEngine: ObservableObject {
         pruneEvents()
     }
 
-    func recordTurn(sessionId: String, isUser: Bool, idleGap: TimeInterval) {
+    func recordTurn(sessionId: String, isUser: Bool, idleGap: TimeInterval, timestamp: Date) {
         guard var session = sessions[sessionId] else { return }
         if idleGap > 120 && idleGap < 7200 { session.idleTime += idleGap }
         if isUser { session.userTurnCount += 1 } else { session.assistantTurnCount += 1 }
         sessions[sessionId] = session
+        let dk = DailyStats.dateKey(for: timestamp)
+        dailyAccum[dk, default: DayAccum()].messages += 1
     }
 
     func addToolCall(sessionId: String, toolName: String, bashCommand: String? = nil, skillName: String? = nil) {
@@ -239,8 +258,8 @@ final class BurnRateEngine: ObservableObject {
     /// Returns daily buckets accumulated since this engine started.
     func liveDailyBuckets() -> [DailyStats] {
         dailyAccum.map { date, accum in
-            DailyStats(date: date, tokens: accum.tokens,
-                       costUSD: accum.costUSD, sessionCount: accum.sessions.count)
+            DailyStats(date: date, tokens: accum.tokens, costUSD: accum.costUSD,
+                       sessionCount: accum.sessions.count, messageCount: accum.messages)
         }.sorted { $0.date < $1.date }
     }
 

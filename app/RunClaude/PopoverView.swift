@@ -38,8 +38,9 @@ enum ChartRange: Int, CaseIterable, Identifiable {
 }
 
 enum ChartMetric: String, CaseIterable, Identifiable {
-    case tokens = "Tokens"
-    case cost   = "Cost"
+    case tokens   = "Tokens"
+    case cost     = "Cost"
+    case messages = "Messages"
     var id: String { rawValue }
 }
 
@@ -77,8 +78,8 @@ struct TrendChart: View {
                 AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
                 AxisValueLabel {
                     if let v = value.as(Double.self) {
-                        Text(metric == .tokens ? formatTick(Int(v)) : String(format: "$%.2f", v))
-                            .font(.system(size: 8))
+                        let label: String = metric == .cost ? String(format: "$%.2f", v) : formatTick(Int(v))
+                        Text(label).font(.system(size: 8))
                     }
                 }
             }
@@ -95,7 +96,11 @@ struct TrendChart: View {
     }
 
     private func yValue(_ day: DailyStats) -> Double {
-        metric == .tokens ? Double(day.tokens) : day.costUSD
+        switch metric {
+        case .tokens:   return Double(day.tokens)
+        case .cost:     return day.costUSD
+        case .messages: return Double(day.messageCount)
+        }
     }
 
     private func formatTick(_ n: Int) -> String {
@@ -113,7 +118,7 @@ struct PopoverView: View {
     @ObservedObject var statsStore: StatsStore
 
     @State private var summaryRange: SummaryRange = .today
-    @State private var detailTab: DetailTab = .models
+    @State private var detailTab: DetailTab = .analytics
     @State private var expandedSessionId: String? = nil
     @State private var chartRange: ChartRange = .week
     @State private var chartMetric: ChartMetric = .tokens
@@ -129,8 +134,6 @@ struct PopoverView: View {
             stateCard
             Divider()
             if let status = engine.status {
-                summaryView(status: status)
-                Divider()
                 detailTabsView
                 Divider()
                 detailContent(status: status)
@@ -203,59 +206,6 @@ struct PopoverView: View {
         case .running:  return "\(formatTokenRate(rate)) flowing"
         case .working:  return "\(formatTokenRate(rate)) • full throttle 🔥"
         }
-    }
-
-    // MARK: - Summary
-
-    private func summaryView(status: StatusSnapshot) -> some View {
-        let days      = statsStore.chartData(days: summaryRange.days)
-        let tokens    = days.reduce(0)    { $0 + $1.tokens }
-        let cost      = days.reduce(0.0)  { $0 + $1.costUSD }
-        let sessions  = days.reduce(0)    { $0 + $1.sessionCount }
-
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                // Range picker
-                HStack(spacing: 2) {
-                    ForEach(SummaryRange.allCases) { r in
-                        rangeButton(r.label, isActive: summaryRange == r) { summaryRange = r }
-                    }
-                }
-                Spacer()
-                // Real-time burn rate indicator
-                HStack(spacing: 4) {
-                    Image(systemName: "flame.fill").font(.system(size: 9)).foregroundStyle(.orange)
-                    Text(formatTokenRate(status.tokensPerSecond))
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                    Text("now").font(.system(size: 9)).foregroundStyle(.tertiary)
-                }
-            }
-            HStack(spacing: 8) {
-                statCard(icon: "number",                iconColor: .blue,   label: "Tokens",
-                         value: formatTokenCount(tokens))
-                statCard(icon: "dollarsign.circle.fill", iconColor: .green, label: "Est. Cost",
-                         value: formatCost(cost))
-                statCard(icon: "terminal.fill",         iconColor: .purple, label: "Sessions",
-                         value: sessions > 0 ? "\(sessions)" : "—")
-            }
-        }
-        .padding(.horizontal, 16).padding(.vertical, 12)
-    }
-
-    private func statCard(icon: String, iconColor: Color, label: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 4) {
-                Image(systemName: icon).font(.system(size: 9)).foregroundStyle(iconColor)
-                Text(label).font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary).textCase(.uppercase)
-            }
-            Text(value).font(.system(.callout, design: .monospaced, weight: .semibold))
-                .lineLimit(1).minimumScaleFactor(0.7)
-        }
-        .padding(.horizontal, 10).padding(.vertical, 8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.08)))
     }
 
     // MARK: - Detail tabs
@@ -456,46 +406,78 @@ struct PopoverView: View {
     // MARK: - Analytics tab
 
     private func analyticsView(status: StatusSnapshot) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                dailyTrendSection
-                Divider().padding(.vertical, 2)
-                analyticsMetricsSection(status: status)
+        let days     = statsStore.chartData(days: summaryRange.days)
+        let tokens   = days.reduce(0)   { $0 + $1.tokens }
+        let cost     = days.reduce(0.0) { $0 + $1.costUSD }
+        let sessions = days.reduce(0)   { $0 + $1.sessionCount }
+        let messages = days.reduce(0)   { $0 + $1.messageCount }
+        let nDays    = summaryRange.days
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                analyticsRangeRow(status: status)
+                analyticsSummaryCards(tokens: tokens, cost: cost, sessions: sessions, messages: messages)
+                analyticsTrendSection(days: days)
+                analyticsStatsBreakdown(tokens: tokens, sessions: sessions, messages: messages, nDays: nDays)
                 if !status.topTools.isEmpty    { analyticsBarSection(title: "TOP TOOLS",    stats: status.topTools) }
                 if !status.topSkills.isEmpty   { analyticsBarSection(title: "TOP SKILLS",   stats: status.topSkills,   barColor: .teal) }
                 if !status.topCommands.isEmpty { analyticsBarSection(title: "TOP COMMANDS", stats: status.topCommands, barColor: .purple) }
                 analyticsSessionsSection(sessions: status.allSessions)
             }
-            .padding(.horizontal, 12).padding(.vertical, 10)
+            .padding(12)
         }
     }
 
-    // MARK: Daily trend
-
-    private var dailyTrendSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Today highlight
-            HStack(alignment: .firstTextBaseline) {
-                analyticsSectionLabel("DAILY USAGE")
-                Spacer()
-                if let today = statsStore.todayStats {
-                    Text(formatTokenCount(today.tokens))
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    Text("·").foregroundStyle(.tertiary).font(.system(size: 10))
-                    Text(formatCost(today.costUSD))
-                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(.green)
-                    Text("today").font(.system(size: 9)).foregroundStyle(.tertiary)
+    private func analyticsRangeRow(status: StatusSnapshot) -> some View {
+        HStack {
+            HStack(spacing: 2) {
+                ForEach(SummaryRange.allCases) { r in
+                    rangeButton(r.label, isActive: summaryRange == r) { summaryRange = r }
                 }
             }
-
-            // Range + metric pickers
-            HStack(spacing: 0) {
-                HStack(spacing: 2) {
-                    ForEach(ChartRange.allCases) { r in
-                        rangeButton(r.label, isActive: chartRange == r) { chartRange = r }
-                    }
+            Spacer()
+            if status.tokensPerSecond > 0 {
+                HStack(spacing: 4) {
+                    Image(systemName: "flame.fill").font(.system(size: 9)).foregroundStyle(.orange)
+                    Text(formatTokenRate(status.tokensPerSecond))
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Text("live").font(.system(size: 9)).foregroundStyle(.tertiary)
                 }
+            }
+        }
+    }
+
+    private func analyticsSummaryCards(tokens: Int, cost: Double, sessions: Int, messages: Int) -> some View {
+        let grid = [GridItem(.flexible()), GridItem(.flexible())]
+        return LazyVGrid(columns: grid, spacing: 8) {
+            summaryCard(icon: "number",                iconColor: .blue,   label: "Tokens",   value: formatTokenCount(tokens))
+            summaryCard(icon: "dollarsign.circle.fill", iconColor: .green, label: "Cost",     value: formatCost(cost))
+            summaryCard(icon: "terminal.fill",         iconColor: .purple, label: "Sessions", value: sessions > 0 ? "\(sessions)" : "—")
+            summaryCard(icon: "message.fill",          iconColor: .orange, label: "Messages", value: messages > 0 ? "\(messages)" : "—")
+        }
+    }
+
+    private func summaryCard(icon: String, iconColor: Color, label: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 4) {
+                Image(systemName: icon).font(.system(size: 9)).foregroundStyle(iconColor)
+                Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+            }
+            Text(value)
+                .font(.system(.title3, design: .monospaced, weight: .bold))
+                .lineLimit(1).minimumScaleFactor(0.6)
+        }
+        .padding(.horizontal, 12).padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
+    }
+
+    private func analyticsTrendSection(days: [DailyStats]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                analyticsSectionLabel("TREND")
                 Spacer()
                 HStack(spacing: 2) {
                     ForEach(ChartMetric.allCases) { m in
@@ -503,18 +485,49 @@ struct PopoverView: View {
                     }
                 }
             }
-
-            // Chart
-            let data = statsStore.chartData(days: chartRange.rawValue)
-            if data.allSatisfy({ ($0.tokens == 0 && $0.costUSD == 0) }) {
-                Text("No historical data yet — accumulating…")
+            if days.allSatisfy({ $0.tokens == 0 && $0.costUSD == 0 && $0.messageCount == 0 }) {
+                Text("No data yet — accumulating…")
                     .font(.system(size: 10)).foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, minHeight: 60, alignment: .center)
             } else {
-                TrendChart(data: data, metric: chartMetric)
-                    .frame(height: 90)
+                TrendChart(data: days, metric: chartMetric).frame(height: 90)
             }
         }
+    }
+
+    private func analyticsStatsBreakdown(tokens: Int, sessions: Int, messages: Int, nDays: Int) -> some View {
+        let tokPerDay  = nDays > 0 ? tokens   / nDays : 0
+        let msgPerDay  = nDays > 0 ? messages / nDays : 0
+        let sessPerDay = nDays > 0 ? Double(sessions) / Double(nDays) : 0
+
+        return VStack(alignment: .leading, spacing: 5) {
+            analyticsSectionLabel("AVERAGES / DAY")
+            HStack(spacing: 0) {
+                statsBreakdownCell(label: "Sessions", total: sessions > 0 ? "\(sessions)" : "—",
+                                   avg: sessions > 0 ? (sessPerDay < 1 ? "<1" : String(format: "%.1f", sessPerDay)) : "—")
+                Divider().frame(maxHeight: 36)
+                statsBreakdownCell(label: "Tokens", total: tokens > 0 ? formatTokenCount(tokens) : "—",
+                                   avg: tokPerDay > 0 ? formatTokenCount(tokPerDay) : "—")
+                Divider().frame(maxHeight: 36)
+                statsBreakdownCell(label: "Messages", total: messages > 0 ? "\(messages)" : "—",
+                                   avg: msgPerDay > 0 ? "\(msgPerDay)" : "—")
+            }
+            .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.06)))
+        }
+    }
+
+    private func statsBreakdownCell(label: String, total: String, avg: String) -> some View {
+        VStack(spacing: 3) {
+            Text(label).font(.system(size: 8, weight: .semibold)).foregroundStyle(.tertiary)
+                .textCase(.uppercase)
+            Text(total).font(.system(size: 13, weight: .bold, design: .monospaced))
+                .lineLimit(1).minimumScaleFactor(0.6)
+            HStack(spacing: 2) {
+                Text(avg).font(.system(size: 9, design: .monospaced)).foregroundStyle(.secondary)
+                Text("/day").font(.system(size: 9)).foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 8)
     }
 
     private func rangeButton(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
@@ -527,49 +540,6 @@ struct PopoverView: View {
                     .fill(isActive ? Color.accentColor.opacity(0.12) : Color.clear))
         }
         .buttonStyle(.plain)
-    }
-
-    // MARK: Aggregated metrics
-
-    private func analyticsMetricsSection(status: StatusSnapshot) -> some View {
-        let allS = status.allSessions
-        let totalErrors = allS.reduce(0) { $0 + $1.errorCount }
-        let totalTools  = allS.reduce(0) { $0 + $1.totalToolCalls }
-        let avgDur: TimeInterval = allS.isEmpty ? 0 :
-            allS.reduce(0.0) { $0 + $1.duration } / Double(allS.count)
-
-        return VStack(spacing: 6) {
-            HStack(spacing: 6) {
-                analyticsStat(label: "Est. Cost",   value: formatCost(status.totalCostUSD), color: .green)
-                analyticsStat(label: "Tool Calls",  value: "\(totalTools)",                 color: .orange)
-                analyticsStat(label: "Errors",      value: "\(totalErrors)",
-                              color: totalErrors > 0 ? .red : .secondary)
-                analyticsStat(label: "Avg Session",
-                              value: avgDur < 5 ? "—" : formatElapsed(avgDur), color: .blue)
-            }
-            HStack(spacing: 6) {
-                analyticsStat(label: "Commits",   value: status.totalCommits > 0     ? "\(status.totalCommits)"     : "—", color: .orange)
-                analyticsStat(label: "PRs",       value: status.totalPRs > 0         ? "\(status.totalPRs)"         : "—", color: .purple)
-                analyticsStat(label: "MCP Calls", value: status.totalMCPCalls > 0    ? "\(status.totalMCPCalls)"    : "—", color: .blue)
-                analyticsStat(label: "Agents",    value: status.totalAgentSpawns > 0 ? "\(status.totalAgentSpawns)" : "—", color: .teal)
-            }
-            HStack(spacing: 6) {
-                analyticsStat(label: "Skills",    value: status.totalSkillCalls > 0  ? "\(status.totalSkillCalls)"  : "—", color: .teal)
-            }
-        }
-    }
-
-    private func analyticsStat(label: String, value: String, color: Color) -> some View {
-        VStack(spacing: 3) {
-            Text(value)
-                .font(.system(.callout, design: .monospaced, weight: .semibold))
-                .foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
-            Text(label)
-                .font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary)
-                .textCase(.uppercase).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.08)))
     }
 
     private func analyticsBarSection(title: String, stats: [ToolStat], barColor: Color = .accentColor) -> some View {

@@ -20,12 +20,14 @@ final class StatsStore: ObservableObject {
         var changed = false
         for live in liveDays {
             if let idx = history.firstIndex(where: { $0.date == live.date }) {
-                let newTokens  = max(history[idx].tokens,       live.tokens)
-                let newCost    = max(history[idx].costUSD,      live.costUSD)
-                let newSess    = max(history[idx].sessionCount, live.sessionCount)
-                if newTokens != history[idx].tokens || newCost != history[idx].costUSD {
+                let newTokens   = max(history[idx].tokens,        live.tokens)
+                let newCost     = max(history[idx].costUSD,       live.costUSD)
+                let newSess     = max(history[idx].sessionCount,  live.sessionCount)
+                let newMessages = max(history[idx].messageCount,  live.messageCount)
+                if newTokens != history[idx].tokens || newCost != history[idx].costUSD || newMessages != history[idx].messageCount {
                     history[idx] = DailyStats(date: live.date, tokens: newTokens,
-                                              costUSD: newCost, sessionCount: newSess)
+                                              costUSD: newCost, sessionCount: newSess,
+                                              messageCount: newMessages)
                     changed = true
                 }
             } else if live.tokens > 0 {

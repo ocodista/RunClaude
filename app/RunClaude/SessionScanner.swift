@@ -274,7 +274,7 @@ final class SessionScanner {
                 }
             }
             // Turn count + idle gap
-            engine.recordTurn(sessionId: entry.sessionId, isUser: false, idleGap: idleGap)
+            engine.recordTurn(sessionId: entry.sessionId, isUser: false, idleGap: idleGap, timestamp: timestamp)
             // Tool calls from assistant message content
             for block in entry.message?.content?.blocks ?? [] where block.type == "tool_use" {
                 if let name = block.name {
@@ -289,7 +289,7 @@ final class SessionScanner {
 
         case "user":
             // Turn count + idle gap
-            engine.recordTurn(sessionId: entry.sessionId, isUser: true, idleGap: idleGap)
+            engine.recordTurn(sessionId: entry.sessionId, isUser: true, idleGap: idleGap, timestamp: timestamp)
             // Slash command detection from user message text
             if let text = entry.message?.content?.firstText, text.hasPrefix("/") {
                 let command = String(text.split(separator: " ").first ?? Substring(text))
