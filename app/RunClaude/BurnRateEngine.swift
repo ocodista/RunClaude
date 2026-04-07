@@ -1,5 +1,15 @@
 import Foundation
 
+// MARK: - Chart data point (shared by daily and hourly trend views)
+
+struct ChartDataPoint: Identifiable {
+    let date: Date
+    var tokens: Int
+    var costUSD: Double
+    var messageCount: Int
+    var id: Date { date }
+}
+
 // MARK: - Models
 
 struct TokenUsage {
@@ -174,7 +184,15 @@ final class BurnRateEngine: ObservableObject {
         var sessions: Set<String> = []
         var messages: Int = 0
     }
-    private var dailyAccum: [String: DayAccum] = [:]
+    private var dailyAccum:  [String: DayAccum] = [:]
+    private var hourlyAccum: [String: DayAccum] = [:]
+
+    private static let hourFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd-HH"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
 
     // MARK: - Public API
 
@@ -183,6 +201,7 @@ final class BurnRateEngine: ObservableObject {
         events.append(event)
         updateSession(with: event, cost: cost)
         accumulateDaily(event, cost: cost)
+        accumulateHourly(event, cost: cost)
         pruneEvents()
     }
 
@@ -193,6 +212,8 @@ final class BurnRateEngine: ObservableObject {
         sessions[sessionId] = session
         let dk = DailyStats.dateKey(for: timestamp)
         dailyAccum[dk, default: DayAccum()].messages += 1
+        let hk = Self.hourFormatter.string(from: timestamp)
+        hourlyAccum[hk, default: DayAccum()].messages += 1
     }
 
     func addToolCall(sessionId: String, toolName: String, bashCommand: String? = nil, skillName: String? = nil) {
@@ -317,6 +338,28 @@ final class BurnRateEngine: ObservableObject {
         dailyAccum[dk, default: DayAccum()].tokens += event.tokens
         dailyAccum[dk, default: DayAccum()].costUSD += cost
         dailyAccum[dk, default: DayAccum()].sessions.insert(event.sessionId)
+    }
+
+    private func accumulateHourly(_ event: TokenEvent, cost: Double) {
+        let hk = Self.hourFormatter.string(from: event.timestamp)
+        hourlyAccum[hk, default: DayAccum()].tokens += event.tokens
+        hourlyAccum[hk, default: DayAccum()].costUSD += cost
+        hourlyAccum[hk, default: DayAccum()].sessions.insert(event.sessionId)
+    }
+
+    /// Returns one ChartDataPoint per hour from midnight to the current hour,
+    /// zero-filling hours with no activity.
+    func todayHourlyDataPoints() -> [ChartDataPoint] {
+        let cal = Calendar.current
+        let now = Date()
+        let startOfToday = cal.startOfDay(for: now)
+        let currentHour = cal.component(.hour, from: now)
+        return (0...currentHour).compactMap { hour in
+            guard let date = cal.date(byAdding: .hour, value: hour, to: startOfToday) else { return nil }
+            let hk = Self.hourFormatter.string(from: date)
+            let a = hourlyAccum[hk] ?? DayAccum()
+            return ChartDataPoint(date: date, tokens: a.tokens, costUSD: a.costUSD, messageCount: a.messages)
+        }
     }
 
     private func pruneEvents() {

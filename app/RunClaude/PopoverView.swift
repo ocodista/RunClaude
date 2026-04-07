@@ -47,30 +47,38 @@ enum ChartMetric: String, CaseIterable, Identifiable {
 // MARK: - Trend chart
 
 struct TrendChart: View {
-    let data: [DailyStats]
+    let data: [ChartDataPoint]
     let metric: ChartMetric
+    var isHourly: Bool = false
 
     var body: some View {
-        Chart(data) { day in
+        Chart(data) { point in
             LineMark(
-                x: .value("Date", day.parsedDate),
-                y: .value(metric.rawValue, yValue(day))
+                x: .value("Date", point.date),
+                y: .value(metric.rawValue, yValue(point))
             )
             .foregroundStyle(Color.accentColor)
             .interpolationMethod(.catmullRom)
 
             AreaMark(
-                x: .value("Date", day.parsedDate),
-                y: .value(metric.rawValue, yValue(day))
+                x: .value("Date", point.date),
+                y: .value(metric.rawValue, yValue(point))
             )
             .foregroundStyle(Color.accentColor.opacity(0.12))
             .interpolationMethod(.catmullRom)
         }
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day, count: xStride)) { _ in
-                AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
-                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
-                    .font(.system(size: 8))
+            if isHourly {
+                AxisMarks(values: .stride(by: .hour, count: xStride)) { _ in
+                    AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
+                    AxisValueLabel(format: .dateTime.hour()).font(.system(size: 8))
+                }
+            } else {
+                AxisMarks(values: .stride(by: .day, count: xStride)) { _ in
+                    AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
+                    AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                        .font(.system(size: 8))
+                }
             }
         }
         .chartYAxis {
@@ -88,6 +96,9 @@ struct TrendChart: View {
     }
 
     private var xStride: Int {
+        if isHourly {
+            return data.count <= 12 ? 2 : 4
+        }
         switch data.count {
         case 0...10: return 1
         case 11...35: return 7
@@ -95,11 +106,11 @@ struct TrendChart: View {
         }
     }
 
-    private func yValue(_ day: DailyStats) -> Double {
+    private func yValue(_ point: ChartDataPoint) -> Double {
         switch metric {
-        case .tokens:   return Double(day.tokens)
-        case .cost:     return day.costUSD
-        case .messages: return Double(day.messageCount)
+        case .tokens:   return Double(point.tokens)
+        case .cost:     return point.costUSD
+        case .messages: return Double(point.messageCount)
         }
     }
 
@@ -151,11 +162,20 @@ struct PopoverView: View {
     // MARK: - Header
 
     private var headerView: some View {
-        HStack(spacing: 8) {
+        let activeCount = engine.status?.activeSessions.count ?? 0
+        return HStack(spacing: 8) {
             Text("RunClaude").font(.headline)
+            if activeCount > 0 {
+                Text("\(activeCount) active")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Capsule().fill(Color.green.opacity(0.85)))
+            }
             Spacer()
             HStack(spacing: 6) {
-                Circle().fill(Color.green).frame(width: 7, height: 7)
+                Circle().fill(activeCount > 0 ? Color.green : Color.secondary.opacity(0.5))
+                    .frame(width: 7, height: 7)
                 Text("Watching").font(.caption2).foregroundStyle(.secondary)
             }
         }
@@ -412,12 +432,16 @@ struct PopoverView: View {
         let sessions = days.reduce(0)   { $0 + $1.sessionCount }
         let messages = days.reduce(0)   { $0 + $1.messageCount }
         let nDays    = summaryRange.days
+        let isHourly = summaryRange == .today
+        let chartPoints: [ChartDataPoint] = isHourly
+            ? engine.todayHourlyDataPoints()
+            : statsStore.chartDataPoints(days: summaryRange.days)
 
         return ScrollView {
             VStack(alignment: .leading, spacing: 14) {
                 analyticsRangeRow(status: status)
                 analyticsSummaryCards(tokens: tokens, cost: cost, sessions: sessions, messages: messages)
-                analyticsTrendSection(days: days)
+                analyticsTrendSection(data: chartPoints, isHourly: isHourly)
                 analyticsStatsBreakdown(tokens: tokens, sessions: sessions, messages: messages, nDays: nDays)
                 if !status.topTools.isEmpty    { analyticsBarSection(title: "TOP TOOLS",    stats: status.topTools) }
                 if !status.topSkills.isEmpty   { analyticsBarSection(title: "TOP SKILLS",   stats: status.topSkills,   barColor: .teal) }
@@ -474,7 +498,7 @@ struct PopoverView: View {
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.08)))
     }
 
-    private func analyticsTrendSection(days: [DailyStats]) -> some View {
+    private func analyticsTrendSection(data: [ChartDataPoint], isHourly: Bool) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 analyticsSectionLabel("TREND")
@@ -485,12 +509,12 @@ struct PopoverView: View {
                     }
                 }
             }
-            if days.allSatisfy({ $0.tokens == 0 && $0.costUSD == 0 && $0.messageCount == 0 }) {
+            if data.allSatisfy({ $0.tokens == 0 && $0.costUSD == 0 && $0.messageCount == 0 }) {
                 Text("No data yet — accumulating…")
                     .font(.system(size: 10)).foregroundStyle(.tertiary)
                     .frame(maxWidth: .infinity, minHeight: 60, alignment: .center)
             } else {
-                TrendChart(data: days, metric: chartMetric).frame(height: 90)
+                TrendChart(data: data, metric: chartMetric, isHourly: isHourly).frame(height: 90)
             }
         }
     }

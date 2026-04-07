@@ -60,6 +60,13 @@ final class StatsStore: ObservableObject {
         }
     }
 
+    func chartDataPoints(days: Int) -> [ChartDataPoint] {
+        chartData(days: days).map { s in
+            ChartDataPoint(date: s.parsedDate, tokens: s.tokens,
+                           costUSD: s.costUSD, messageCount: s.messageCount)
+        }
+    }
+
     // MARK: - Private
 
     private func load() {
