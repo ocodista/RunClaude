@@ -439,6 +439,7 @@ struct PopoverView: View {
                 Divider().padding(.vertical, 2)
                 analyticsMetricsSection(status: status)
                 if !status.topTools.isEmpty    { analyticsBarSection(title: "TOP TOOLS",    stats: status.topTools) }
+                if !status.topSkills.isEmpty   { analyticsBarSection(title: "TOP SKILLS",   stats: status.topSkills,   barColor: .teal) }
                 if !status.topCommands.isEmpty { analyticsBarSection(title: "TOP COMMANDS", stats: status.topCommands, barColor: .purple) }
                 analyticsSessionsSection(sessions: status.allSessions)
             }
@@ -528,6 +529,9 @@ struct PopoverView: View {
                 analyticsStat(label: "PRs",       value: status.totalPRs > 0         ? "\(status.totalPRs)"         : "—", color: .purple)
                 analyticsStat(label: "MCP Calls", value: status.totalMCPCalls > 0    ? "\(status.totalMCPCalls)"    : "—", color: .blue)
                 analyticsStat(label: "Agents",    value: status.totalAgentSpawns > 0 ? "\(status.totalAgentSpawns)" : "—", color: .teal)
+            }
+            HStack(spacing: 6) {
+                analyticsStat(label: "Skills",    value: status.totalSkillCalls > 0  ? "\(status.totalSkillCalls)"  : "—", color: .teal)
             }
         }
     }
@@ -672,6 +676,10 @@ struct PopoverView: View {
         ].compactMap { $0 }
         if !parts.isEmpty {
             detailRow(label: "Calls", value: parts.joined(separator: " · "))
+        }
+        if !session.skillUsage.isEmpty {
+            detailRow(label: "Skills",
+                      value: session.topSkills.map { "\($0.name)×\($0.count)" }.joined(separator: "  "))
         }
         if !session.commandUsage.isEmpty {
             detailRow(label: "Commands",

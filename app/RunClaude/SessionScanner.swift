@@ -19,10 +19,11 @@ final class SessionScanner {
         let cache_read_input_tokens: Int?
     }
 
-    // Bash tool passes {"command": "..."}, other tools have different shapes.
-    // We only capture `command` and ignore everything else.
+    // Bash tool passes {"command": "..."}, Skill tool passes {"skill": "...", "args": "..."}.
+    // We only capture the fields we care about.
     private struct JSONLToolInput: Decodable {
         let command: String?
+        let skill: String?
     }
 
     private struct JSONLContentBlock: Decodable {
@@ -280,7 +281,8 @@ final class SessionScanner {
                     engine.addToolCall(
                         sessionId: entry.sessionId,
                         toolName: name,
-                        bashCommand: name == "Bash" ? block.input?.command : nil
+                        bashCommand: name == "Bash" ? block.input?.command : nil,
+                        skillName: name == "Skill" ? block.input?.skill : nil
                     )
                 }
             }

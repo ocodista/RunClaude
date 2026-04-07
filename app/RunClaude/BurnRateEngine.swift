@@ -31,6 +31,7 @@ struct SessionInfo: Identifiable {
 
     // Tool tracking
     var toolCounts: [String: Int] = [:]
+    var skillUsage: [String: Int] = [:]
     var errorCount: Int = 0
 
     // Effort signals
@@ -67,6 +68,10 @@ struct SessionInfo: Identifiable {
     var topCommands: [ToolStat] {
         commandUsage.sorted { $0.value > $1.value }.prefix(5).map { ToolStat(name: $0.key, count: $0.value) }
     }
+    var topSkills: [ToolStat] {
+        skillUsage.sorted { $0.value > $1.value }.prefix(5).map { ToolStat(name: $0.key, count: $0.value) }
+    }
+    var totalSkillCalls: Int { skillUsage.values.reduce(0, +) }
 }
 
 struct ModelBreakdown: Identifiable {
@@ -126,6 +131,8 @@ struct StatusSnapshot {
     let allSessions: [SessionInfo]
     let topTools: [ToolStat]
     let topCommands: [ToolStat]
+    let topSkills: [ToolStat]
+    let totalSkillCalls: Int
     let totalCommits: Int
     let totalPRs: Int
     let totalMCPCalls: Int
@@ -169,13 +176,15 @@ final class BurnRateEngine: ObservableObject {
         sessions[sessionId] = session
     }
 
-    func addToolCall(sessionId: String, toolName: String, bashCommand: String? = nil) {
+    func addToolCall(sessionId: String, toolName: String, bashCommand: String? = nil, skillName: String? = nil) {
         guard var session = sessions[sessionId] else { return }
         session.toolCounts[toolName, default: 0] += 1
         if toolName.contains("__") {
             session.mcpCallCount += 1
         } else if toolName == "Agent" {
             session.agentSpawnCount += 1
+        } else if toolName == "Skill", let skill = skillName {
+            session.skillUsage[skill, default: 0] += 1
         }
         if let cmd = bashCommand {
             if cmd.contains("git commit") { session.commitCount += 1 }
@@ -218,6 +227,8 @@ final class BurnRateEngine: ObservableObject {
             allSessions: all,
             topTools: aggregatedTopStats(keyPath: \.toolCounts),
             topCommands: aggregatedTopStats(keyPath: \.commandUsage),
+            topSkills: aggregatedTopStats(keyPath: \.skillUsage),
+            totalSkillCalls: all.reduce(0) { $0 + $1.totalSkillCalls },
             totalCommits: all.reduce(0) { $0 + $1.commitCount },
             totalPRs: all.reduce(0) { $0 + $1.prCount },
             totalMCPCalls: all.reduce(0) { $0 + $1.mcpCallCount },
