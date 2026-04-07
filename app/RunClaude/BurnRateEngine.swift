@@ -87,6 +87,32 @@ struct ToolStat: Identifiable {
     var id: String { name }
 }
 
+// MARK: - Daily stats (persisted by StatsStore)
+
+struct DailyStats: Codable, Identifiable {
+    let date: String   // "yyyy-MM-dd"
+    var tokens: Int
+    var costUSD: Double
+    var sessionCount: Int
+
+    var id: String { date }
+
+    var parsedDate: Date { DailyStats.dateFormatter.date(from: date) ?? Date() }
+
+    static let dateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    static func dateKey(for date: Date = Date()) -> String {
+        dateFormatter.string(from: date)
+    }
+}
+
+// MARK: - Snapshot
+
 struct StatusSnapshot {
     let serverStartedAt: Date
     let tokensPerSecond: Double
@@ -118,39 +144,43 @@ final class BurnRateEngine: ObservableObject {
     private var events: [TokenEvent] = []
     private var sessions: [String: SessionInfo] = [:]
 
+    // Per-day accumulation (in-memory, merged into StatsStore periodically)
+    private struct DayAccum {
+        var tokens: Int = 0
+        var costUSD: Double = 0.0
+        var sessions: Set<String> = []
+    }
+    private var dailyAccum: [String: DayAccum] = [:]
+
     // MARK: - Public API
 
     func addEvent(_ event: TokenEvent) {
+        let cost = Self.estimateCostUSD(model: event.model, usage: event.usage)
         events.append(event)
-        updateSession(with: event)
+        updateSession(with: event, cost: cost)
+        accumulateDaily(event, cost: cost)
         pruneEvents()
     }
 
-    /// Called for every message (user or assistant) to count turns and track idle gaps.
     func recordTurn(sessionId: String, isUser: Bool, idleGap: TimeInterval) {
         guard var session = sessions[sessionId] else { return }
-        // Gap between 2 min and 2 hours = intentional pause (idle), not session boundary
         if idleGap > 120 && idleGap < 7200 { session.idleTime += idleGap }
         if isUser { session.userTurnCount += 1 } else { session.assistantTurnCount += 1 }
         sessions[sessionId] = session
     }
 
-    /// Records a tool_use block. Classifies MCP, Agent, git commit, and gh pr automatically.
     func addToolCall(sessionId: String, toolName: String, bashCommand: String? = nil) {
         guard var session = sessions[sessionId] else { return }
         session.toolCounts[toolName, default: 0] += 1
-
         if toolName.contains("__") {
             session.mcpCallCount += 1
         } else if toolName == "Agent" {
             session.agentSpawnCount += 1
         }
-
         if let cmd = bashCommand {
             if cmd.contains("git commit") { session.commitCount += 1 }
             if cmd.contains("gh pr create") { session.prCount += 1 }
         }
-
         sessions[sessionId] = session
     }
 
@@ -173,7 +203,6 @@ final class BurnRateEngine: ObservableObject {
         sessions[sessionId] = session
     }
 
-    /// Recomputes the published snapshot. Call after a batch of events.
     func refreshSnapshot() {
         pruneEvents()
         let all = allSessions()
@@ -194,6 +223,14 @@ final class BurnRateEngine: ObservableObject {
             totalMCPCalls: all.reduce(0) { $0 + $1.mcpCallCount },
             totalAgentSpawns: all.reduce(0) { $0 + $1.agentSpawnCount }
         )
+    }
+
+    /// Returns daily buckets accumulated since this engine started.
+    func liveDailyBuckets() -> [DailyStats] {
+        dailyAccum.map { date, accum in
+            DailyStats(date: date, tokens: accum.tokens,
+                       costUSD: accum.costUSD, sessionCount: accum.sessions.count)
+        }.sorted { $0.date < $1.date }
     }
 
     // MARK: - Cost estimation (Anthropic pricing, per million tokens)
@@ -218,8 +255,7 @@ final class BurnRateEngine: ObservableObject {
 
     // MARK: - Private
 
-    private func updateSession(with event: TokenEvent) {
-        let cost = Self.estimateCostUSD(model: event.model, usage: event.usage)
+    private func updateSession(with event: TokenEvent, cost: Double) {
         if var existing = sessions[event.sessionId] {
             existing.totalInputTokens         += event.usage.inputTokens
             existing.totalOutputTokens        += event.usage.outputTokens
@@ -244,6 +280,13 @@ final class BurnRateEngine: ObservableObject {
                 estimatedCostUSD: cost
             )
         }
+    }
+
+    private func accumulateDaily(_ event: TokenEvent, cost: Double) {
+        let dk = DailyStats.dateKey(for: event.timestamp)
+        dailyAccum[dk, default: DayAccum()].tokens += event.tokens
+        dailyAccum[dk, default: DayAccum()].costUSD += cost
+        dailyAccum[dk, default: DayAccum()].sessions.insert(event.sessionId)
     }
 
     private func pruneEvents() {

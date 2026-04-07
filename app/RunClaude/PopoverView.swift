@@ -1,4 +1,7 @@
 import SwiftUI
+import Charts
+
+// MARK: - Enums
 
 enum DetailTab: String, CaseIterable, Identifiable {
     case models    = "Models"
@@ -15,12 +18,95 @@ enum DetailTab: String, CaseIterable, Identifiable {
     }
 }
 
+enum ChartRange: Int, CaseIterable, Identifiable {
+    case week    = 7
+    case month   = 30
+    case quarter = 90
+    var id: Int { rawValue }
+    var label: String {
+        switch self { case .week: return "7d"; case .month: return "30d"; case .quarter: return "90d" }
+    }
+}
+
+enum ChartMetric: String, CaseIterable, Identifiable {
+    case tokens = "Tokens"
+    case cost   = "Cost"
+    var id: String { rawValue }
+}
+
+// MARK: - Trend chart
+
+struct TrendChart: View {
+    let data: [DailyStats]
+    let metric: ChartMetric
+
+    var body: some View {
+        Chart(data) { day in
+            LineMark(
+                x: .value("Date", day.parsedDate),
+                y: .value(metric.rawValue, yValue(day))
+            )
+            .foregroundStyle(Color.accentColor)
+            .interpolationMethod(.catmullRom)
+
+            AreaMark(
+                x: .value("Date", day.parsedDate),
+                y: .value(metric.rawValue, yValue(day))
+            )
+            .foregroundStyle(Color.accentColor.opacity(0.12))
+            .interpolationMethod(.catmullRom)
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .day, count: xStride)) { _ in
+                AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
+                AxisValueLabel(format: .dateTime.month(.abbreviated).day())
+                    .font(.system(size: 8))
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .leading) { value in
+                AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
+                AxisValueLabel {
+                    if let v = value.as(Double.self) {
+                        Text(metric == .tokens ? formatTick(Int(v)) : String(format: "$%.2f", v))
+                            .font(.system(size: 8))
+                    }
+                }
+            }
+        }
+        .chartPlotStyle { p in p.background(Color.secondary.opacity(0.04)) }
+    }
+
+    private var xStride: Int {
+        switch data.count {
+        case 0...10: return 1
+        case 11...35: return 7
+        default: return 14
+        }
+    }
+
+    private func yValue(_ day: DailyStats) -> Double {
+        metric == .tokens ? Double(day.tokens) : day.costUSD
+    }
+
+    private func formatTick(_ n: Int) -> String {
+        if n < 1000      { return "\(n)" }
+        if n < 1_000_000 { return String(format: "%.0fk", Double(n) / 1000) }
+        return String(format: "%.1fM", Double(n) / 1_000_000)
+    }
+}
+
+// MARK: - PopoverView
+
 struct PopoverView: View {
     @ObservedObject var engine: BurnRateEngine
     @ObservedObject var eyeAnimator: EyeAnimator
+    @ObservedObject var statsStore: StatsStore
 
     @State private var detailTab: DetailTab = .models
     @State private var expandedSessionId: String? = nil
+    @State private var chartRange: ChartRange = .week
+    @State private var chartMetric: ChartMetric = .tokens
 
     private var effectiveState: EyeActivityState {
         eyeAnimator.forcedState ?? eyeAnimator.currentState
@@ -30,10 +116,8 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             headerView
             Divider()
-
             stateCard
             Divider()
-
             if let status = engine.status {
                 summaryView(status: status)
                 Divider()
@@ -43,7 +127,6 @@ struct PopoverView: View {
             } else {
                 loadingView
             }
-
             Divider()
             debugView
             Divider()
@@ -56,20 +139,14 @@ struct PopoverView: View {
 
     private var headerView: some View {
         HStack(spacing: 8) {
-            Text("RunClaude")
-                .font(.headline)
+            Text("RunClaude").font(.headline)
             Spacer()
             HStack(spacing: 6) {
-                Circle()
-                    .fill(Color.green)
-                    .frame(width: 7, height: 7)
-                Text("Watching")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                Circle().fill(Color.green).frame(width: 7, height: 7)
+                Text("Watching").font(.caption2).foregroundStyle(.secondary)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 16).padding(.vertical, 12)
     }
 
     // MARK: - State card
@@ -77,8 +154,7 @@ struct PopoverView: View {
     private var stateCard: some View {
         let info = stateInfo(effectiveState)
         return HStack(spacing: 12) {
-            Text(info.emoji)
-                .font(.system(size: 28))
+            Text(info.emoji).font(.system(size: 28))
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(info.title)
@@ -86,25 +162,18 @@ struct PopoverView: View {
                         .foregroundStyle(info.color)
                     if eyeAnimator.forcedState != nil {
                         Text("DEBUG")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
+                            .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
+                            .padding(.horizontal, 4).padding(.vertical, 1)
                             .background(RoundedRectangle(cornerRadius: 3).fill(Color.orange))
                     }
                 }
-                Text(stateSubtitle(effectiveState))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(stateSubtitle(effectiveState)).font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(
-            LinearGradient(colors: [info.color.opacity(0.08), .clear],
-                           startPoint: .leading, endPoint: .trailing)
-        )
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(LinearGradient(colors: [info.color.opacity(0.08), .clear],
+                                   startPoint: .leading, endPoint: .trailing))
     }
 
     private func stateInfo(_ state: EyeActivityState) -> (emoji: String, title: String, color: Color) {
@@ -126,60 +195,42 @@ struct PopoverView: View {
         }
     }
 
-    // MARK: - Summary (always visible)
+    // MARK: - Summary
 
     private func summaryView(status: StatusSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 5) {
-                Image(systemName: "clock")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
+                Image(systemName: "clock").font(.system(size: 10)).foregroundStyle(.tertiary)
                 Text("Counting since ")
-                    .font(.system(size: 10))
-                    .foregroundStyle(.tertiary)
-                + Text(countingSinceText(status: status))
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.secondary)
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                + Text(formatElapsed(Date().timeIntervalSince(status.serverStartedAt)) + " ago")
+                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
             }
-
             HStack(spacing: 8) {
-                statCard(icon: "flame.fill",           iconColor: .orange, label: "Burn Rate",
+                statCard(icon: "flame.fill",            iconColor: .orange, label: "Burn Rate",
                          value: formatTokenRate(status.tokensPerSecond))
-                statCard(icon: "number",               iconColor: .blue,   label: "Tokens",
+                statCard(icon: "number",                iconColor: .blue,   label: "Tokens",
                          value: formatTokenCount(status.totalTokens))
                 statCard(icon: "dollarsign.circle.fill", iconColor: .green, label: "Est. Cost",
                          value: formatCost(status.totalCostUSD))
-                statCard(icon: "terminal.fill",        iconColor: .purple, label: "Sessions",
+                statCard(icon: "terminal.fill",         iconColor: .purple, label: "Sessions",
                          value: "\(status.totalSessions)")
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-    }
-
-    private func countingSinceText(status: StatusSnapshot) -> String {
-        let elapsed = Date().timeIntervalSince(status.serverStartedAt)
-        return "\(formatElapsed(elapsed)) ago"
+        .padding(.horizontal, 16).padding(.vertical, 12)
     }
 
     private func statCard(icon: String, iconColor: Color, label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
-                Image(systemName: icon)
-                    .font(.system(size: 9))
-                    .foregroundStyle(iconColor)
-                Text(label)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .textCase(.uppercase)
+                Image(systemName: icon).font(.system(size: 9)).foregroundStyle(iconColor)
+                Text(label).font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(.secondary).textCase(.uppercase)
             }
-            Text(value)
-                .font(.system(.callout, design: .monospaced, weight: .semibold))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+            Text(value).font(.system(.callout, design: .monospaced, weight: .semibold))
+                .lineLimit(1).minimumScaleFactor(0.7)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.08)))
     }
@@ -188,32 +239,22 @@ struct PopoverView: View {
 
     private var detailTabsView: some View {
         HStack(spacing: 4) {
-            ForEach(DetailTab.allCases) { tab in
-                tabButton(tab)
-            }
+            ForEach(DetailTab.allCases) { tab in tabButton(tab) }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 12).padding(.vertical, 8)
     }
 
     private func tabButton(_ tab: DetailTab) -> some View {
         let isActive = detailTab == tab
-        return Button {
-            detailTab = tab
-        } label: {
+        return Button { detailTab = tab } label: {
             HStack(spacing: 4) {
-                Image(systemName: tab.icon)
-                    .font(.system(size: 10))
-                Text(tab.rawValue)
-                    .font(.system(size: 11, weight: .medium))
+                Image(systemName: tab.icon).font(.system(size: 10))
+                Text(tab.rawValue).font(.system(size: 11, weight: .medium))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
+            .padding(.horizontal, 10).padding(.vertical, 5)
             .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(isActive ? Color.accentColor.opacity(0.15) : Color.clear)
-            )
+            .background(RoundedRectangle(cornerRadius: 6)
+                .fill(isActive ? Color.accentColor.opacity(0.15) : Color.clear))
             .foregroundStyle(isActive ? Color.accentColor : Color.secondary)
         }
         .buttonStyle(.plain)
@@ -232,20 +273,16 @@ struct PopoverView: View {
 
     private func modelsView(status: StatusSnapshot) -> some View {
         let models = status.modelBreakdown
-        let totalTokens = max(models.map(\.tokens).reduce(0, +), 1)
-
+        let total  = max(models.map(\.tokens).reduce(0, +), 1)
         return Group {
             if models.isEmpty {
                 emptyDetailView(icon: "cpu", text: "No model usage yet")
             } else {
                 ScrollView {
                     VStack(spacing: 6) {
-                        ForEach(models) { m in
-                            modelRow(m, share: Double(m.tokens) / Double(totalTokens))
-                        }
+                        ForEach(models) { m in modelRow(m, share: Double(m.tokens) / Double(total)) }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
                 }
             }
         }
@@ -254,17 +291,13 @@ struct PopoverView: View {
     private func modelRow(_ m: ModelBreakdown, share: Double) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Circle()
-                    .fill(modelColor(m.model))
-                    .frame(width: 7, height: 7)
+                Circle().fill(modelColor(m.model)).frame(width: 7, height: 7)
                 Text(shortModelName(m.model))
-                    .font(.system(.caption, design: .monospaced, weight: .semibold))
-                    .lineLimit(1)
+                    .font(.system(.caption, design: .monospaced, weight: .semibold)).lineLimit(1)
                 Spacer(minLength: 4)
                 Text(formatTokenCount(m.tokens))
                     .font(.system(size: 11, weight: .semibold, design: .monospaced))
             }
-
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.12))
@@ -273,7 +306,6 @@ struct PopoverView: View {
                 }
             }
             .frame(height: 4)
-
             HStack(spacing: 6) {
                 Text("\(m.sessionCount) session\(m.sessionCount == 1 ? "" : "s")")
                     .font(.system(size: 10)).foregroundStyle(.secondary)
@@ -282,8 +314,7 @@ struct PopoverView: View {
                     .font(.system(size: 10, design: .monospaced)).foregroundStyle(.tertiary)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
     }
@@ -307,8 +338,7 @@ struct PopoverView: View {
                     VStack(spacing: 6) {
                         ForEach(status.activeSessions) { s in sessionCard(s) }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 12).padding(.vertical, 10)
                 }
             }
         }
@@ -316,7 +346,6 @@ struct PopoverView: View {
 
     private func sessionCard(_ session: SessionInfo) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            // Row 1: name + model badge
             HStack(spacing: 6) {
                 Circle().fill(modelColor(session.model)).frame(width: 7, height: 7)
                 Text(sessionTitle(session))
@@ -327,7 +356,6 @@ struct PopoverView: View {
                     .padding(.horizontal, 5).padding(.vertical, 2)
                     .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.15)))
             }
-            // Row 2: project + tokens
             HStack(spacing: 4) {
                 Image(systemName: "folder").font(.system(size: 8)).foregroundStyle(.tertiary)
                 Text(session.project.isEmpty ? "unknown" : session.project)
@@ -337,7 +365,6 @@ struct PopoverView: View {
                     .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                 Text("tokens").font(.system(size: 10)).foregroundStyle(.tertiary)
             }
-            // Row 3: duration + cost + errors
             HStack(spacing: 4) {
                 Image(systemName: "clock").font(.system(size: 8)).foregroundStyle(.tertiary)
                 Text(session.duration < 5 ? "< 5s" : formatElapsed(session.duration))
@@ -351,35 +378,41 @@ struct PopoverView: View {
                         .font(.system(size: 9, weight: .semibold)).foregroundStyle(.red)
                 }
             }
-            // Row 4: signals (commits / PRs / MCP / agents / human ratio)
             let hasSig = session.commitCount + session.prCount + session.mcpCallCount +
                          session.agentSpawnCount + session.totalTurns > 0
-            if hasSig {
-                HStack(spacing: 8) {
-                    if session.commitCount > 0 {
-                        signalBadge(icon: "arrow.triangle.branch", label: "\(session.commitCount) commit\(session.commitCount == 1 ? "" : "s")", color: .orange)
-                    }
-                    if session.prCount > 0 {
-                        signalBadge(icon: "arrow.triangle.merge", label: "\(session.prCount) PR\(session.prCount == 1 ? "" : "s")", color: .purple)
-                    }
-                    if session.mcpCallCount > 0 {
-                        signalBadge(icon: "network", label: "\(session.mcpCallCount) MCP", color: .blue)
-                    }
-                    if session.agentSpawnCount > 0 {
-                        signalBadge(icon: "person.2.fill", label: "\(session.agentSpawnCount) agent\(session.agentSpawnCount == 1 ? "" : "s")", color: .teal)
-                    }
-                    Spacer()
-                    if session.totalTurns > 0 {
-                        Text("\(Int((session.humanTurnsRatio * 100).rounded()))% human")
-                            .font(.system(size: 9, design: .monospaced)).foregroundStyle(.tertiary)
-                    }
-                }
-            }
+            if hasSig { sessionSignalRow(session) }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 10).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
+    }
+
+    private func sessionSignalRow(_ session: SessionInfo) -> some View {
+        HStack(spacing: 8) {
+            if session.commitCount > 0 {
+                signalBadge(icon: "arrow.triangle.branch",
+                            label: "\(session.commitCount) commit\(session.commitCount == 1 ? "" : "s")",
+                            color: .orange)
+            }
+            if session.prCount > 0 {
+                signalBadge(icon: "arrow.triangle.merge",
+                            label: "\(session.prCount) PR\(session.prCount == 1 ? "" : "s")",
+                            color: .purple)
+            }
+            if session.mcpCallCount > 0 {
+                signalBadge(icon: "network", label: "\(session.mcpCallCount) MCP", color: .blue)
+            }
+            if session.agentSpawnCount > 0 {
+                signalBadge(icon: "person.2.fill",
+                            label: "\(session.agentSpawnCount) agent\(session.agentSpawnCount == 1 ? "" : "s")",
+                            color: .teal)
+            }
+            Spacer()
+            if session.totalTurns > 0 {
+                Text("\(Int((session.humanTurnsRatio * 100).rounded()))% human")
+                    .font(.system(size: 9, design: .monospaced)).foregroundStyle(.tertiary)
+            }
+        }
     }
 
     private func signalBadge(icon: String, label: String, color: Color) -> some View {
@@ -402,49 +435,99 @@ struct PopoverView: View {
     private func analyticsView(status: StatusSnapshot) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
+                dailyTrendSection
+                Divider().padding(.vertical, 2)
                 analyticsMetricsSection(status: status)
                 if !status.topTools.isEmpty    { analyticsBarSection(title: "TOP TOOLS",    stats: status.topTools) }
                 if !status.topCommands.isEmpty { analyticsBarSection(title: "TOP COMMANDS", stats: status.topCommands, barColor: .purple) }
                 analyticsSessionsSection(sessions: status.allSessions)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 12).padding(.vertical, 10)
         }
     }
 
+    // MARK: Daily trend
+
+    private var dailyTrendSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Today highlight
+            HStack(alignment: .firstTextBaseline) {
+                analyticsSectionLabel("DAILY USAGE")
+                Spacer()
+                if let today = statsStore.todayStats {
+                    Text(formatTokenCount(today.tokens))
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                    Text("·").foregroundStyle(.tertiary).font(.system(size: 10))
+                    Text(formatCost(today.costUSD))
+                        .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.green)
+                    Text("today").font(.system(size: 9)).foregroundStyle(.tertiary)
+                }
+            }
+
+            // Range + metric pickers
+            HStack(spacing: 0) {
+                HStack(spacing: 2) {
+                    ForEach(ChartRange.allCases) { r in
+                        rangeButton(r.label, isActive: chartRange == r) { chartRange = r }
+                    }
+                }
+                Spacer()
+                HStack(spacing: 2) {
+                    ForEach(ChartMetric.allCases) { m in
+                        rangeButton(m.rawValue, isActive: chartMetric == m) { chartMetric = m }
+                    }
+                }
+            }
+
+            // Chart
+            let data = statsStore.chartData(days: chartRange.rawValue)
+            if data.allSatisfy({ ($0.tokens == 0 && $0.costUSD == 0) }) {
+                Text("No historical data yet — accumulating…")
+                    .font(.system(size: 10)).foregroundStyle(.tertiary)
+                    .frame(maxWidth: .infinity, minHeight: 60, alignment: .center)
+            } else {
+                TrendChart(data: data, metric: chartMetric)
+                    .frame(height: 90)
+            }
+        }
+    }
+
+    private func rangeButton(_ label: String, isActive: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.system(size: 10, weight: isActive ? .semibold : .regular))
+                .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                .padding(.horizontal, 7).padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 4)
+                    .fill(isActive ? Color.accentColor.opacity(0.12) : Color.clear))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: Aggregated metrics
+
     private func analyticsMetricsSection(status: StatusSnapshot) -> some View {
-        let s = status
-        let allS = s.allSessions
+        let allS = status.allSessions
         let totalErrors = allS.reduce(0) { $0 + $1.errorCount }
         let totalTools  = allS.reduce(0) { $0 + $1.totalToolCalls }
         let avgDur: TimeInterval = allS.isEmpty ? 0 :
             allS.reduce(0.0) { $0 + $1.duration } / Double(allS.count)
-        let avgHuman: Double = allS.filter({ $0.totalTurns > 0 }).isEmpty ? 0 :
-            allS.filter({ $0.totalTurns > 0 }).reduce(0.0) { $0 + $1.humanTurnsRatio } /
-            Double(allS.filter({ $0.totalTurns > 0 }).count)
 
         return VStack(spacing: 6) {
             HStack(spacing: 6) {
-                analyticsStat(label: "Est. Cost",   value: formatCost(s.totalCostUSD),      color: .green)
-                analyticsStat(label: "Tool Calls",  value: "\(totalTools)",                  color: .orange)
+                analyticsStat(label: "Est. Cost",   value: formatCost(status.totalCostUSD), color: .green)
+                analyticsStat(label: "Tool Calls",  value: "\(totalTools)",                 color: .orange)
                 analyticsStat(label: "Errors",      value: "\(totalErrors)",
                               color: totalErrors > 0 ? .red : .secondary)
-                analyticsStat(label: "Avg Session", value: avgDur < 5 ? "—" : formatElapsed(avgDur), color: .blue)
+                analyticsStat(label: "Avg Session",
+                              value: avgDur < 5 ? "—" : formatElapsed(avgDur), color: .blue)
             }
             HStack(spacing: 6) {
-                analyticsStat(label: "Commits",     value: s.totalCommits > 0 ? "\(s.totalCommits)" : "—",    color: .orange)
-                analyticsStat(label: "PRs",         value: s.totalPRs > 0 ? "\(s.totalPRs)" : "—",           color: .purple)
-                analyticsStat(label: "MCP Calls",   value: s.totalMCPCalls > 0 ? "\(s.totalMCPCalls)" : "—", color: .blue)
-                analyticsStat(label: "Agents",      value: s.totalAgentSpawns > 0 ? "\(s.totalAgentSpawns)" : "—",
-                              color: .teal)
-            }
-            if avgHuman > 0 {
-                HStack(spacing: 6) {
-                    analyticsStat(label: "Human Turns",
-                                  value: "\(Int((avgHuman * 100).rounded()))% avg",
-                                  color: .secondary)
-                    Spacer()
-                }
+                analyticsStat(label: "Commits",   value: status.totalCommits > 0     ? "\(status.totalCommits)"     : "—", color: .orange)
+                analyticsStat(label: "PRs",       value: status.totalPRs > 0         ? "\(status.totalPRs)"         : "—", color: .purple)
+                analyticsStat(label: "MCP Calls", value: status.totalMCPCalls > 0    ? "\(status.totalMCPCalls)"    : "—", color: .blue)
+                analyticsStat(label: "Agents",    value: status.totalAgentSpawns > 0 ? "\(status.totalAgentSpawns)" : "—", color: .teal)
             }
         }
     }
@@ -453,17 +536,12 @@ struct PopoverView: View {
         VStack(spacing: 3) {
             Text(value)
                 .font(.system(.callout, design: .monospaced, weight: .semibold))
-                .foregroundStyle(color)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .foregroundStyle(color).lineLimit(1).minimumScaleFactor(0.7)
             Text(label)
-                .font(.system(size: 8, weight: .medium))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-                .lineLimit(1)
+                .font(.system(size: 8, weight: .medium)).foregroundStyle(.secondary)
+                .textCase(.uppercase).lineLimit(1)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity).padding(.vertical, 8)
         .background(RoundedRectangle(cornerRadius: 7).fill(Color.secondary.opacity(0.08)))
     }
 
@@ -481,8 +559,7 @@ struct PopoverView: View {
         HStack(spacing: 8) {
             Text(stat.name)
                 .font(.system(size: 10, design: .monospaced))
-                .frame(width: 80, alignment: .leading)
-                .lineLimit(1)
+                .frame(width: 80, alignment: .leading).lineLimit(1)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2).fill(Color.secondary.opacity(0.12))
@@ -492,19 +569,19 @@ struct PopoverView: View {
             }
             .frame(height: 5)
             Text("\(stat.count)")
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
                 .frame(width: 36, alignment: .trailing)
         }
         .frame(maxWidth: .infinity)
     }
 
+    // MARK: Sessions list
+
     private func analyticsSessionsSection(sessions: [SessionInfo]) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             analyticsSectionLabel("SESSIONS (\(sessions.count))")
             if sessions.isEmpty {
-                Text("No sessions yet")
-                    .font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
+                Text("No sessions yet").font(.caption).foregroundStyle(.secondary).padding(.vertical, 8)
             } else {
                 ForEach(sessions) { session in analyticsSessionRow(session) }
             }
@@ -514,9 +591,7 @@ struct PopoverView: View {
     private func analyticsSessionRow(_ session: SessionInfo) -> some View {
         let isExpanded = expandedSessionId == session.id
         return VStack(alignment: .leading, spacing: 2) {
-            Button {
-                expandedSessionId = isExpanded ? nil : session.id
-            } label: {
+            Button { expandedSessionId = isExpanded ? nil : session.id } label: {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Circle().fill(modelColor(session.model)).frame(width: 6, height: 6)
@@ -554,8 +629,7 @@ struct PopoverView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 10).padding(.vertical, 7)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
             }
@@ -571,12 +645,10 @@ struct PopoverView: View {
             sessionDetailActions(session)
             sessionDetailOutput(session)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14).padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(RoundedRectangle(cornerRadius: 6)
-            .fill(Color.secondary.opacity(0.04))
-            .padding(.horizontal, 4))
+            .fill(Color.secondary.opacity(0.04)).padding(.horizontal, 4))
     }
 
     @ViewBuilder
@@ -593,13 +665,13 @@ struct PopoverView: View {
 
     @ViewBuilder
     private func sessionDetailActions(_ session: SessionInfo) -> some View {
-        let actionParts = [
+        let parts = [
             session.mcpCallCount > 0    ? "\(session.mcpCallCount) MCP" : nil,
             session.agentSpawnCount > 0 ? "\(session.agentSpawnCount) agent\(session.agentSpawnCount == 1 ? "" : "s")" : nil,
             session.errorCount > 0      ? "\(session.errorCount) error\(session.errorCount == 1 ? "" : "s")" : nil,
         ].compactMap { $0 }
-        if !actionParts.isEmpty {
-            detailRow(label: "Calls", value: actionParts.joined(separator: " · "))
+        if !parts.isEmpty {
+            detailRow(label: "Calls", value: parts.joined(separator: " · "))
         }
         if !session.commandUsage.isEmpty {
             detailRow(label: "Commands",
@@ -621,20 +693,6 @@ struct PopoverView: View {
         }
     }
 
-    private func detailRow(label: String, value: String) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text(label)
-                .font(.system(size: 9, weight: .semibold))
-                .foregroundStyle(.tertiary)
-                .textCase(.uppercase)
-                .frame(width: 60, alignment: .trailing)
-            Text(value)
-                .font(.system(size: 10, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
     private func toolSummary(_ session: SessionInfo) -> String {
         let tools = session.topTools
         let rest  = session.totalToolCalls - tools.reduce(0) { $0 + $1.count }
@@ -643,11 +701,19 @@ struct PopoverView: View {
         return s
     }
 
+    private func detailRow(label: String, value: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text(label)
+                .font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
+                .textCase(.uppercase).frame(width: 60, alignment: .trailing)
+            Text(value)
+                .font(.system(size: 10, design: .monospaced)).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
     private func analyticsSectionLabel(_ text: String) -> some View {
-        Text(text)
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(.tertiary)
-            .padding(.bottom, 1)
+        Text(text).font(.system(size: 9, weight: .semibold)).foregroundStyle(.tertiary)
     }
 
     // MARK: - Empty / Loading
@@ -691,25 +757,20 @@ struct PopoverView: View {
                 }
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16).padding(.vertical, 10)
     }
 
     private func debugLabel(_ state: EyeActivityState) -> String {
         switch state {
-        case .sleeping: return "Sleep"
-        case .walking:  return "Walk"
-        case .running:  return "Run"
-        case .working:  return "Sprint"
+        case .sleeping: return "Sleep"; case .walking: return "Walk"
+        case .running: return "Run";    case .working: return "Sprint"
         }
     }
 
     private func debugStateButton(_ state: EyeActivityState, label: String) -> some View {
         let isActive = eyeAnimator.forcedState == state
         let info = stateInfo(state)
-        return Button {
-            eyeAnimator.forcedState = isActive ? nil : state
-        } label: {
+        return Button { eyeAnimator.forcedState = isActive ? nil : state } label: {
             HStack(spacing: 3) {
                 Text(info.emoji).font(.system(size: 11))
                 Text(label).font(.system(size: 10, weight: .medium))
@@ -735,8 +796,7 @@ struct PopoverView: View {
             Text("~/.claude/projects")
                 .font(.system(size: 9, design: .monospaced)).foregroundStyle(.tertiary)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 16).padding(.vertical, 10)
     }
 
     // MARK: - Formatters

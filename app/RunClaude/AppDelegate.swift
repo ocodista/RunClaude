@@ -8,11 +8,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var eyeAnimator: EyeAnimator!
     private var engine: BurnRateEngine!
     private var scanner: SessionScanner!
+    private var statsStore: StatsStore!
     private var animationTimer: Timer?
+    private var mergeTimer: Timer?
     private var eventMonitor: Any?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Create status bar item
         statusItem = NSStatusBar.system.statusItem(withLength: 34)
 
         if let button = statusItem.button {
@@ -21,30 +22,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
         }
 
-        // Set up popover
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 320, height: 400)
+        popover.contentSize = NSSize(width: 480, height: 560)
         popover.behavior = .transient
 
-        // Initialize services
         engine = BurnRateEngine()
         scanner = SessionScanner(engine: engine)
         eyeAnimator = EyeAnimator()
+        statsStore = StatsStore()
 
-        let statusView = PopoverView(engine: engine, eyeAnimator: eyeAnimator)
+        let statusView = PopoverView(engine: engine, eyeAnimator: eyeAnimator, statsStore: statsStore)
         popover.contentViewController = NSHostingController(rootView: statusView)
 
-        // Start tailing Claude session files
         scanner.start()
 
-        // Animation loop at ~24fps — also pulls the latest burn rate from the engine.
-        animationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 24.0, repeats: true) { [weak self] _ in
+        // Initial merge after scanner has processed the tail
+        statsStore.merge(liveDays: engine.liveDailyBuckets())
+
+        // Merge + save every 30 seconds
+        mergeTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.tick()
+                guard let self else { return }
+                self.statsStore.merge(liveDays: self.engine.liveDailyBuckets())
+                self.statsStore.save()
             }
         }
 
-        // Close popover when clicking outside
+        animationTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 24.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
+
         eventMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             if let popover = self?.popover, popover.isShown {
                 popover.performClose(nil)
@@ -67,6 +74,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if popover.isShown {
                 popover.performClose(nil)
             } else {
+                // Sync store before showing
+                statsStore.merge(liveDays: engine.liveDailyBuckets())
                 popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
                 NSApp.activate(ignoringOtherApps: true)
             }
@@ -74,7 +83,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        statsStore.merge(liveDays: engine.liveDailyBuckets())
+        statsStore.save()
         animationTimer?.invalidate()
+        mergeTimer?.invalidate()
         scanner?.stop()
         if let monitor = eventMonitor {
             NSEvent.removeMonitor(monitor)
