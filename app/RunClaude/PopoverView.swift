@@ -18,6 +18,15 @@ enum DetailTab: String, CaseIterable, Identifiable {
     }
 }
 
+enum SummaryRange: String, CaseIterable, Identifiable {
+    case today    = "Today"
+    case sevenDays  = "7d"
+    case thirtyDays = "30d"
+    var id: String { rawValue }
+    var days: Int { switch self { case .today: return 1; case .sevenDays: return 7; case .thirtyDays: return 30 } }
+    var label: String { rawValue }
+}
+
 enum ChartRange: Int, CaseIterable, Identifiable {
     case week    = 7
     case month   = 30
@@ -103,6 +112,7 @@ struct PopoverView: View {
     @ObservedObject var eyeAnimator: EyeAnimator
     @ObservedObject var statsStore: StatsStore
 
+    @State private var summaryRange: SummaryRange = .today
     @State private var detailTab: DetailTab = .models
     @State private var expandedSessionId: String? = nil
     @State private var chartRange: ChartRange = .week
@@ -198,23 +208,36 @@ struct PopoverView: View {
     // MARK: - Summary
 
     private func summaryView(status: StatusSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 5) {
-                Image(systemName: "clock").font(.system(size: 10)).foregroundStyle(.tertiary)
-                Text("Counting since ")
-                    .font(.system(size: 10)).foregroundStyle(.tertiary)
-                + Text(formatElapsed(Date().timeIntervalSince(status.serverStartedAt)) + " ago")
-                    .font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+        let days      = statsStore.chartData(days: summaryRange.days)
+        let tokens    = days.reduce(0)    { $0 + $1.tokens }
+        let cost      = days.reduce(0.0)  { $0 + $1.costUSD }
+        let sessions  = days.reduce(0)    { $0 + $1.sessionCount }
+
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                // Range picker
+                HStack(spacing: 2) {
+                    ForEach(SummaryRange.allCases) { r in
+                        rangeButton(r.label, isActive: summaryRange == r) { summaryRange = r }
+                    }
+                }
+                Spacer()
+                // Real-time burn rate indicator
+                HStack(spacing: 4) {
+                    Image(systemName: "flame.fill").font(.system(size: 9)).foregroundStyle(.orange)
+                    Text(formatTokenRate(status.tokensPerSecond))
+                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                    Text("now").font(.system(size: 9)).foregroundStyle(.tertiary)
+                }
             }
             HStack(spacing: 8) {
-                statCard(icon: "flame.fill",            iconColor: .orange, label: "Burn Rate",
-                         value: formatTokenRate(status.tokensPerSecond))
                 statCard(icon: "number",                iconColor: .blue,   label: "Tokens",
-                         value: formatTokenCount(status.totalTokens))
+                         value: formatTokenCount(tokens))
                 statCard(icon: "dollarsign.circle.fill", iconColor: .green, label: "Est. Cost",
-                         value: formatCost(status.totalCostUSD))
+                         value: formatCost(cost))
                 statCard(icon: "terminal.fill",         iconColor: .purple, label: "Sessions",
-                         value: "\(status.totalSessions)")
+                         value: sessions > 0 ? "\(sessions)" : "—")
             }
         }
         .padding(.horizontal, 16).padding(.vertical, 12)
