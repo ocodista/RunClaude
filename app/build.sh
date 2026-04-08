@@ -22,9 +22,9 @@ xcrun swiftc \
   -O \
   RunClaude/RunClaudeApp.swift \
   RunClaude/AppDelegate.swift \
-  RunClaude/EyeState.swift \
-  RunClaude/EyeAnimator.swift \
-  RunClaude/EyeRenderer.swift \
+  RunClaude/BotState.swift \
+  RunClaude/BotAnimator.swift \
+  RunClaude/BotRenderer.swift \
   RunClaude/BurnRateEngine.swift \
   RunClaude/SessionScanner.swift \
   RunClaude/StatsStore.swift \

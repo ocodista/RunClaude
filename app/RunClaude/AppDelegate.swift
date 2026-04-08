@@ -5,7 +5,7 @@ import SwiftUI
 class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
-    private var eyeAnimator: EyeAnimator!
+    private var botAnimator: BotAnimator!
     private var engine: BurnRateEngine!
     private var scanner: SessionScanner!
     private var statsStore: StatsStore!
@@ -17,7 +17,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = NSStatusBar.system.statusItem(withLength: 34)
 
         if let button = statusItem.button {
-            button.image = EyeRenderer.render(state: .sleeping, animPhase: 0)
+            button.image = BotRenderer.render(state: .sleeping, animPhase: 0)
             button.action = #selector(togglePopover)
             button.target = self
         }
@@ -28,10 +28,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         engine = BurnRateEngine()
         scanner = SessionScanner(engine: engine)
-        eyeAnimator = EyeAnimator()
+        botAnimator = BotAnimator()
         statsStore = StatsStore()
 
-        let statusView = PopoverView(engine: engine, eyeAnimator: eyeAnimator, statsStore: statsStore)
+        let statusView = PopoverView(engine: engine, botAnimator: botAnimator, statsStore: statsStore)
         popover.contentViewController = NSHostingController(rootView: statusView)
 
         scanner.start()
@@ -60,12 +60,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func tick() {
-        eyeAnimator.updateBurnRate(tokensPerSecond: engine.status?.tokensPerSecond ?? 0,
+        botAnimator.updateBurnRate(tokensPerSecond: engine.status?.tokensPerSecond ?? 0,
                                    isRateLimited: engine.status?.isRateLimited ?? false)
-        eyeAnimator.tick()
-        let image = EyeRenderer.render(
-            state: eyeAnimator.forcedState ?? eyeAnimator.currentState,
-            animPhase: eyeAnimator.animPhase
+        botAnimator.tick()
+        let image = BotRenderer.render(
+            state: botAnimator.forcedState ?? botAnimator.currentState,
+            animPhase: botAnimator.animPhase
         )
         statusItem.button?.image = image
     }

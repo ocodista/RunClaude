@@ -170,7 +170,7 @@ struct MiniSparkline: View {
 
 struct PopoverView: View {
     @ObservedObject var engine: BurnRateEngine
-    @ObservedObject var eyeAnimator: EyeAnimator
+    @ObservedObject var botAnimator: BotAnimator
     @ObservedObject var statsStore: StatsStore
 
     @State private var summaryRange: SummaryRange = .today
@@ -180,8 +180,8 @@ struct PopoverView: View {
     @State private var chartMetric: ChartMetric = .tokens
     @State private var liveMinutes: Int = 15
 
-    private var effectiveState: EyeActivityState {
-        eyeAnimator.forcedState ?? eyeAnimator.currentState
+    private var effectiveState: BotState {
+        botAnimator.forcedState ?? botAnimator.currentState
     }
 
     var body: some View {
@@ -239,7 +239,7 @@ struct PopoverView: View {
                     Text(info.title)
                         .font(.system(.subheadline, weight: .semibold))
                         .foregroundStyle(info.color)
-                    if eyeAnimator.forcedState != nil {
+                    if botAnimator.forcedState != nil {
                         Text("DEBUG")
                             .font(.system(size: 8, weight: .bold)).foregroundStyle(.white)
                             .padding(.horizontal, 4).padding(.vertical, 1)
@@ -255,7 +255,7 @@ struct PopoverView: View {
                                    startPoint: .leading, endPoint: .trailing))
     }
 
-    private func stateInfo(_ state: EyeActivityState) -> (emoji: String, title: String, color: Color) {
+    private func stateInfo(_ state: BotState) -> (emoji: String, title: String, color: Color) {
         switch state {
         case .sleeping: return ("😴", "Sleeping",  .gray)
         case .walking:  return ("🚶", "Walking",   .blue)
@@ -265,7 +265,7 @@ struct PopoverView: View {
         }
     }
 
-    private func stateSubtitle(_ state: EyeActivityState) -> String {
+    private func stateSubtitle(_ state: BotState) -> String {
         let rate = engine.status?.tokensPerSecond ?? 0
         switch state {
         case .sleeping: return "No activity for 30s+"
@@ -939,13 +939,13 @@ struct PopoverView: View {
                 Text("Debug State")
                     .font(.system(size: 10, weight: .medium)).foregroundStyle(.secondary).textCase(.uppercase)
                 Spacer()
-                if eyeAnimator.forcedState != nil {
-                    Button("Reset") { eyeAnimator.forcedState = nil }
+                if botAnimator.forcedState != nil {
+                    Button("Reset") { botAnimator.forcedState = nil }
                         .buttonStyle(.plain).font(.system(size: 10)).foregroundStyle(.orange)
                 }
             }
             HStack(spacing: 5) {
-                ForEach([EyeActivityState.sleeping, .walking, .running, .working, .locked], id: \.self) { state in
+                ForEach([BotState.sleeping, .walking, .running, .working, .locked], id: \.self) { state in
                     debugStateButton(state, label: debugLabel(state))
                 }
             }
@@ -953,7 +953,7 @@ struct PopoverView: View {
         .padding(.horizontal, 16).padding(.vertical, 10)
     }
 
-    private func debugLabel(_ state: EyeActivityState) -> String {
+    private func debugLabel(_ state: BotState) -> String {
         switch state {
         case .sleeping: return "Sleep"
         case .walking:  return "Walk"
@@ -963,10 +963,10 @@ struct PopoverView: View {
         }
     }
 
-    private func debugStateButton(_ state: EyeActivityState, label: String) -> some View {
-        let isActive = eyeAnimator.forcedState == state
+    private func debugStateButton(_ state: BotState, label: String) -> some View {
+        let isActive = botAnimator.forcedState == state
         let info = stateInfo(state)
-        return Button { eyeAnimator.forcedState = isActive ? nil : state } label: {
+        return Button { botAnimator.forcedState = isActive ? nil : state } label: {
             HStack(spacing: 3) {
                 Text(info.emoji).font(.system(size: 11))
                 Text(label).font(.system(size: 10, weight: .medium))

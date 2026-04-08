@@ -1,11 +1,11 @@
 import Foundation
 
-class EyeAnimator: ObservableObject {
-    private(set) var currentState: EyeActivityState = .sleeping
+class BotAnimator: ObservableObject {
+    private(set) var currentState: BotState = .sleeping
     private(set) var animPhase: Double = 0
 
     /// When set, overrides the auto-detected state (debug use only).
-    @Published var forcedState: EyeActivityState? = nil
+    @Published var forcedState: BotState? = nil
 
     private var tokensPerSecond: Double = 0
     private var lastActivityTime: Date = .distantPast

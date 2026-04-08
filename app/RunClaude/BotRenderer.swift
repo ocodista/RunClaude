@@ -1,6 +1,6 @@
 import AppKit
 
-struct EyeRenderer {
+struct BotRenderer {
     static let iconWidth: CGFloat = 34
     static let iconHeight: CGFloat = 18
 
@@ -8,7 +8,7 @@ struct EyeRenderer {
     private static let groundY: CGFloat = 15.8
     private static let legLength: CGFloat = 4.6
 
-    static func render(state: EyeActivityState, animPhase: Double) -> NSImage {
+    static func render(state: BotState, animPhase: Double) -> NSImage {
         let image = NSImage(size: NSSize(width: iconWidth, height: iconHeight), flipped: true) { _ in
             let p = CGFloat(animPhase)
 
