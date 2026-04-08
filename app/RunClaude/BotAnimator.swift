@@ -1,6 +1,20 @@
 import Foundation
 
 class BotAnimator: ObservableObject {
+    private enum Threshold {
+        static let WORKING_TOKENS_PER_SECOND: Double = 8000
+        static let RUNNING_TOKENS_PER_SECOND: Double = 500
+        static let WALKING_RECENCY_SECONDS: TimeInterval = 30
+    }
+
+    private enum AnimationSpeed {
+        static let SLEEPING: Double = 0.8
+        static let WALKING: Double  = 2.8
+        static let RUNNING: Double  = 11.0
+        static let WORKING: Double  = 20.0
+        static let LOCKED: Double   = 0.4
+    }
+
     private(set) var currentState: BotState = .sleeping
     private(set) var animPhase: Double = 0
 
@@ -21,21 +35,26 @@ class BotAnimator: ObservableObject {
         if tokensPerSecond > 0 { lastActivityTime = Date() }
         let secondsSinceActivity = Date().timeIntervalSince(lastActivityTime)
 
-        if tokensPerSecond > 2000      { currentState = .working }
-        else if tokensPerSecond > 10   { currentState = .running }
-        else if secondsSinceActivity < 30 { currentState = .walking }
-        else                           { currentState = .sleeping }
+        if tokensPerSecond > Threshold.WORKING_TOKENS_PER_SECOND {
+            currentState = .working
+        } else if tokensPerSecond > Threshold.RUNNING_TOKENS_PER_SECOND {
+            currentState = .running
+        } else if secondsSinceActivity < Threshold.WALKING_RECENCY_SECONDS {
+            currentState = .walking
+        } else {
+            currentState = .sleeping
+        }
     }
 
     func tick() {
         let dt = 1.0 / 24.0
         let speed: Double
         switch currentState {
-        case .sleeping: speed = 0.8
-        case .walking:  speed = 2.8
-        case .running:  speed = 11.0
-        case .working:  speed = 20.0
-        case .locked:   speed = 0.4   // Very slow bored sway
+        case .sleeping: speed = AnimationSpeed.SLEEPING
+        case .walking:  speed = AnimationSpeed.WALKING
+        case .running:  speed = AnimationSpeed.RUNNING
+        case .working:  speed = AnimationSpeed.WORKING
+        case .locked:   speed = AnimationSpeed.LOCKED
         }
         animPhase += dt * speed
     }
