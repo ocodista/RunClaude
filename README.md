@@ -4,9 +4,13 @@
   <img src="icon.png" width="128" alt="RunClaude icon" />
 </p>
 
-Menu bar token monitor for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). A stick figure runs faster as token burn rate increases — inspired by [RunCat](https://kyome.io/runcat/).
+<p align="center">
+  <img src="assets/demo.gif" width="479" alt="RunClaude analytics popover" />
+</p>
 
-Click the icon for a live dashboard: burn rate, per-model token breakdown, and active sessions.
+Menu bar analytics for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). A pixel bot runs faster as your token burn rate climbs — inspired by [RunCat](https://kyome.io/runcat/).
+
+Click the icon for a live dashboard: token spend, cost, session history, and per-minute burn across all active sessions.
 
 ## Install
 
@@ -20,12 +24,14 @@ open /Applications/RunClaude.app
 
 ## Features
 
-- Burn rate (tokens/second) over a 60s sliding window
-- Per-model breakdown (Opus, Sonnet, Haiku) with share bars
-- Active session list with project and token counts
-- Animated menu bar icon: sleeps, walks, runs, sprints
+- **Bot states** — sleeps, walks, runs, sprints, or locks behind bars when rate-limited
+- **Analytics** — tokens, cost, sessions, and messages for Today / 7d / 30d
+- **Trend chart** — hourly buckets for today, daily for longer ranges
+- **Live tab** — per-session pulsing cards with per-minute token comparison chart
+- **Top tools / skills / commands** — see what Claude is actually doing
+- **Participation** — human vs agent % per session
 - Reads `~/.claude/projects/` directly — zero config, no network
-- Single Swift binary, no daemon
+- Single Swift binary, no daemon, no Xcode required
 
 ## Requirements
 
@@ -38,18 +44,14 @@ open /Applications/RunClaude.app
 ./start.sh  # builds and opens from app/build/
 ```
 
-Regenerate the app icon:
-
-```sh
-cd app && swift generate-icon.swift
-```
-
 ## Architecture
 
 - `BurnRateEngine.swift` — token aggregation, snapshot publishing
 - `SessionScanner.swift` — tails JSONL files with incremental offsets (2s poll)
-- `EyeRenderer.swift` — NSBezierPath stick figure drawing
-- `PopoverView.swift` — SwiftUI dashboard
+- `BotRenderer.swift` — NSBezierPath pixel bot drawing
+- `BotAnimator.swift` — state machine (sleeping → walking → running → working → locked)
+- `StatsStore.swift` — persistent daily stats to disk
+- `PopoverView.swift` — SwiftUI analytics dashboard
 
 ## License
 
