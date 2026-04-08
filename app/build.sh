@@ -17,16 +17,17 @@ mkdir -p "$APP_DIR/Contents/Resources"
 xcrun swiftc \
   -sdk "$(xcrun --show-sdk-path -sdk macosx)" \
   -target arm64-apple-macosx14.0 \
-  -framework AppKit -framework SwiftUI \
+  -framework AppKit -framework SwiftUI -framework Charts \
   -parse-as-library \
   -O \
   RunClaude/RunClaudeApp.swift \
   RunClaude/AppDelegate.swift \
-  RunClaude/EyeState.swift \
-  RunClaude/EyeAnimator.swift \
-  RunClaude/EyeRenderer.swift \
+  RunClaude/BotState.swift \
+  RunClaude/BotAnimator.swift \
+  RunClaude/BotRenderer.swift \
   RunClaude/BurnRateEngine.swift \
   RunClaude/SessionScanner.swift \
+  RunClaude/StatsStore.swift \
   RunClaude/PopoverView.swift \
   -o "$APP_DIR/Contents/MacOS/$APP_NAME"
 
