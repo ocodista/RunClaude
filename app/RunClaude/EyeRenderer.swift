@@ -24,6 +24,8 @@ struct EyeRenderer {
                 drawRunner(phase: p, tier: .run)
             case .working:
                 drawRunner(phase: p, tier: .sprint)
+            case .locked:
+                drawLocked(phase: p)
             }
 
             return true
@@ -223,6 +225,51 @@ struct EyeRenderer {
         line(from: CGPoint(x: hipX + 0.8, y: hipY), to: CGPoint(x: hipX + 1.0, y: footY), width: 1.4)
         line(from: CGPoint(x: hipX - 1.8, y: footY), to: CGPoint(x: hipX - 0.2, y: footY), width: 1.2)
         line(from: CGPoint(x: hipX + 0.2, y: footY), to: CGPoint(x: hipX + 1.8, y: footY), width: 1.2)
+    }
+
+    // MARK: - Locked (behind bars)
+
+    private static func drawLocked(phase: CGFloat) {
+        // Very slow weight-shift sway (bored)
+        let sway = sin(phase * 0.5) * 0.18
+        let cx: CGFloat = iconWidth / 2 - 5
+        let hipY      = groundY - legLength
+        let shoulderY = hipY - 2.7
+        let headCY    = shoulderY - 2.3
+
+        // Head with bored squinting eyes
+        let r: CGFloat = 2.3
+        let headPath = NSBezierPath(ovalIn: CGRect(x: cx + sway - r, y: headCY - r, width: r * 2, height: r * 2))
+        headPath.lineWidth = 1.3
+        headPath.stroke()
+        line(from: CGPoint(x: cx + sway - 1.1, y: headCY - 0.25),
+             to:   CGPoint(x: cx + sway - 0.3, y: headCY - 0.25), width: 0.8)
+        line(from: CGPoint(x: cx + sway + 0.3, y: headCY - 0.25),
+             to:   CGPoint(x: cx + sway + 1.1, y: headCY - 0.25), width: 0.8)
+
+        // Neck
+        line(from: CGPoint(x: cx + sway * 0.5, y: headCY + 2.1),
+             to:   CGPoint(x: cx, y: shoulderY - 0.1), width: 1.0)
+
+        // Torso
+        drawTorso(shoulderX: cx, shoulderY: shoulderY, hipX: cx, hipY: hipY)
+
+        // Arms drooping at sides
+        line(from: CGPoint(x: cx - 1.5, y: shoulderY + 0.4),
+             to:   CGPoint(x: cx - 2.1, y: hipY + 0.9), width: 1.1)
+        line(from: CGPoint(x: cx + 1.5, y: shoulderY + 0.4),
+             to:   CGPoint(x: cx + 2.1, y: hipY + 0.9), width: 1.1)
+
+        // Standing legs
+        drawStandingLegs(hipX: cx, hipY: hipY)
+
+        // Prison bars drawn in front of the figure
+        let barXs: [CGFloat] = [11.0, 14.5, 18.0, 21.5]
+        for bx in barXs {
+            NSBezierPath(roundedRect: CGRect(x: bx - 0.65, y: 0.8,
+                                             width: 1.3, height: groundY + 0.5),
+                         xRadius: 0.3, yRadius: 0.3).fill()
+        }
     }
 
     // MARK: - Z's (sleeping)

@@ -1,5 +1,19 @@
 import Foundation
 
+// MARK: - Live session data (per-minute, per-session)
+
+struct MinutePoint: Identifiable {
+    let date: Date
+    var tokens: Int
+    var id: Date { date }
+}
+
+struct SessionMinuteSeries: Identifiable {
+    let session: SessionInfo
+    let points: [MinutePoint]
+    var id: String { session.id }
+}
+
 // MARK: - Chart data point (shared by daily and hourly trend views)
 
 struct ChartDataPoint: Identifiable {
@@ -38,6 +52,18 @@ struct SessionInfo: Identifiable {
     var totalCacheReadTokens: Int
     var firstSeen: Date
     var lastSeen: Date
+
+    // Identity
+    var projectDir: String = ""  // raw encoded dir, e.g. "-Users-foo-personal-project"
+
+    var displayPath: String {
+        let parts = projectDir.split(separator: "-", omittingEmptySubsequences: true).map(String.init)
+        // Drop "Users" + username (first 2), keep rest as path levels
+        let relevant = parts.count > 2 ? Array(parts.dropFirst(2)) : parts
+        if relevant.isEmpty { return project.isEmpty ? String(sessionId.prefix(8)) : project }
+        let last3 = Array(relevant.suffix(3))
+        return (relevant.count > 3 ? ".../" : "") + last3.joined(separator: "/")
+    }
 
     // Tool tracking
     var toolCounts: [String: Int] = [:]
@@ -163,6 +189,8 @@ struct StatusSnapshot {
     let totalPRs: Int
     let totalMCPCalls: Int
     let totalAgentSpawns: Int
+    let activeSeriesData: [SessionMinuteSeries]
+    let isRateLimited: Bool
 }
 
 // MARK: - Engine
@@ -184,8 +212,12 @@ final class BurnRateEngine: ObservableObject {
         var sessions: Set<String> = []
         var messages: Int = 0
     }
+    @Published private(set) var isRateLimited: Bool = false
+
     private var dailyAccum:  [String: DayAccum] = [:]
     private var hourlyAccum: [String: DayAccum] = [:]
+    // [sessionId: [minuteKey: tokens]] — last 30 min, for live comparison chart
+    private var sessionMinuteAccum: [String: [String: Int]] = [:]
 
     private static let hourFormatter: DateFormatter = {
         let f = DateFormatter()
@@ -194,16 +226,28 @@ final class BurnRateEngine: ObservableObject {
         return f
     }()
 
+    private static let minuteFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
     // MARK: - Public API
 
     func addEvent(_ event: TokenEvent) {
+        isRateLimited = false  // tokens flowing = not rate limited
         let cost = Self.estimateCostUSD(model: event.model, usage: event.usage)
         events.append(event)
         updateSession(with: event, cost: cost)
         accumulateDaily(event, cost: cost)
         accumulateHourly(event, cost: cost)
+        let mk = Self.minuteFormatter.string(from: event.timestamp)
+        sessionMinuteAccum[event.sessionId, default: [:]][mk, default: 0] += event.tokens
         pruneEvents()
     }
+
+    func setRateLimited(_ limited: Bool) { isRateLimited = limited }
 
     func recordTurn(sessionId: String, isUser: Bool, idleGap: TimeInterval, timestamp: Date) {
         guard var session = sessions[sessionId] else { return }
@@ -245,10 +289,11 @@ final class BurnRateEngine: ObservableObject {
         sessions[sessionId] = session
     }
 
-    func updateSessionMeta(sessionId: String, slug: String, project: String) {
+    func updateSessionMeta(sessionId: String, slug: String, project: String, projectDir: String = "") {
         guard var session = sessions[sessionId] else { return }
-        if !slug.isEmpty    { session.slug = slug }
-        if !project.isEmpty { session.project = project }
+        if !slug.isEmpty       { session.slug = slug }
+        if !project.isEmpty    { session.project = project }
+        if !projectDir.isEmpty { session.projectDir = projectDir }
         sessions[sessionId] = session
     }
 
@@ -272,7 +317,9 @@ final class BurnRateEngine: ObservableObject {
             totalCommits: all.reduce(0) { $0 + $1.commitCount },
             totalPRs: all.reduce(0) { $0 + $1.prCount },
             totalMCPCalls: all.reduce(0) { $0 + $1.mcpCallCount },
-            totalAgentSpawns: all.reduce(0) { $0 + $1.agentSpawnCount }
+            totalAgentSpawns: all.reduce(0) { $0 + $1.agentSpawnCount },
+            activeSeriesData: buildActiveSeriesData(minutes: 30),
+            isRateLimited: isRateLimited
         )
     }
 
@@ -365,6 +412,25 @@ final class BurnRateEngine: ObservableObject {
     private func pruneEvents() {
         let cutoff = Date().addingTimeInterval(-Double(Self.windowSeconds))
         events.removeAll { $0.timestamp < cutoff }
+        // Prune per-minute data older than 30 minutes
+        let minuteCutoff = Self.minuteFormatter.string(from: Date().addingTimeInterval(-1800))
+        for key in sessionMinuteAccum.keys {
+            sessionMinuteAccum[key] = sessionMinuteAccum[key]?.filter { $0.key >= minuteCutoff }
+        }
+    }
+
+    private func buildActiveSeriesData(minutes: Int) -> [SessionMinuteSeries] {
+        let cal = Calendar.current
+        let now = Date()
+        let range: [(key: String, date: Date)] = (0..<minutes).reversed().compactMap { offset in
+            guard let d = cal.date(byAdding: .minute, value: -offset, to: now) else { return nil }
+            return (Self.minuteFormatter.string(from: d), d)
+        }
+        return activeSessions().map { session in
+            let data = sessionMinuteAccum[session.sessionId] ?? [:]
+            let pts  = range.map { MinutePoint(date: $0.date, tokens: data[$0.key] ?? 0) }
+            return SessionMinuteSeries(session: session, points: pts)
+        }
     }
 
     private func tokensPerSecond() -> Double {

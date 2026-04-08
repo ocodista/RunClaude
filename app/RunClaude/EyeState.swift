@@ -5,4 +5,5 @@ enum EyeActivityState: Hashable {
     case walking    // Recently active, no tokens — robot walking
     case running    // Tokens flowing — robot running
     case working    // High burn rate — robot with 4 arms all busy
+    case locked     // Subscription/rate limit exhausted — bot behind bars
 }

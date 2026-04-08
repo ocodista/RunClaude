@@ -10,6 +10,7 @@ final class SessionScanner {
         var offset: UInt64
         let sessionId: String
         let project: String
+        let projectDir: String
     }
 
     private struct JSONLUsage: Decodable {
@@ -157,20 +158,22 @@ final class SessionScanner {
                     if entry == "subagents" { continue }
                     guard let subFiles = try? fm.contentsOfDirectory(atPath: entryURL.path) else { continue }
                     for subFile in subFiles where subFile.hasSuffix(".jsonl") {
-                        track(path: entryURL.appendingPathComponent(subFile).path, project: projectName)
+                        track(path: entryURL.appendingPathComponent(subFile).path,
+                              project: projectName, projectDir: projectDir)
                     }
                 } else if entry.hasSuffix(".jsonl") {
-                    track(path: entryURL.path, project: projectName)
+                    track(path: entryURL.path, project: projectName, projectDir: projectDir)
                 }
             }
         }
     }
 
-    private func track(path: String, project: String) {
+    private func track(path: String, project: String, projectDir: String) {
         guard tracked[path] == nil else { return }
         let sessionId = (path as NSString).lastPathComponent
             .replacingOccurrences(of: ".jsonl", with: "")
-        tracked[path] = TrackedFile(path: path, offset: 0, sessionId: sessionId, project: project)
+        tracked[path] = TrackedFile(path: path, offset: 0, sessionId: sessionId,
+                                    project: project, projectDir: projectDir)
     }
 
     /// Converts "-Users-caioborghi-personal-my-project" → "my-project".
@@ -216,7 +219,7 @@ final class SessionScanner {
                 for i in startIndex..<lines.count {
                     let line = lines[i].trimmingCharacters(in: .whitespaces)
                     if line.isEmpty { continue }
-                    process(line: line, project: file.project)
+                    process(line: line, project: file.project, projectDir: file.projectDir)
                 }
             }
 
@@ -226,12 +229,16 @@ final class SessionScanner {
         }
     }
 
-    private func process(line: String, project: String) {
+    private static let rateLimitKeywords = ["usage limit", "credit balance", "rate limit",
+                                             "overloaded", "exceeded your", "billing"]
+
+    private func process(line: String, project: String, projectDir: String) {
         guard let data = line.data(using: .utf8),
               let entry = try? JSONDecoder().decode(JSONLEntry.self, from: data) else { return }
 
         if let slug = entry.slug, !slug.isEmpty {
-            engine.updateSessionMeta(sessionId: entry.sessionId, slug: slug, project: project)
+            engine.updateSessionMeta(sessionId: entry.sessionId, slug: slug,
+                                     project: project, projectDir: projectDir)
         }
 
         let timestamp = Self.isoWithFraction.date(from: entry.timestamp)
@@ -270,7 +277,15 @@ final class SessionScanner {
                         sessionId: entry.sessionId
                     ))
                     // First event for this session won't have a project yet — backfill.
-                    engine.updateSessionMeta(sessionId: entry.sessionId, slug: "", project: project)
+                    engine.updateSessionMeta(sessionId: entry.sessionId, slug: "",
+                                             project: project, projectDir: projectDir)
+                }
+            }
+            // Rate limit detection from assistant text
+            if let text = entry.message?.content?.firstText {
+                let lower = text.lowercased()
+                if Self.rateLimitKeywords.contains(where: { lower.contains($0) }) {
+                    engine.setRateLimited(true)
                 }
             }
             // Turn count + idle gap

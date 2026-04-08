@@ -4,16 +4,18 @@ import Charts
 // MARK: - Enums
 
 enum DetailTab: String, CaseIterable, Identifiable {
+    case analytics = "Analytics"
+    case live      = "Live"
     case models    = "Models"
     case sessions  = "Sessions"
-    case analytics = "Analytics"
     var id: String { rawValue }
 
     var icon: String {
         switch self {
+        case .analytics: return "chart.bar.fill"
+        case .live:      return "bolt.fill"
         case .models:    return "cpu"
         case .sessions:  return "terminal.fill"
-        case .analytics: return "chart.bar.fill"
         }
     }
 }
@@ -121,6 +123,49 @@ struct TrendChart: View {
     }
 }
 
+// MARK: - Live session components
+
+struct PulseIndicator: View {
+    let color: Color
+    let isActive: Bool
+    @State private var scale: CGFloat = 1.0
+
+    var body: some View {
+        ZStack {
+            Circle().fill(color.opacity(0.22)).scaleEffect(scale)
+            Circle().fill(isActive ? color : color.opacity(0.25)).frame(width: 7, height: 7)
+        }
+        .frame(width: 16, height: 16)
+        .onAppear { pulse() }
+        .onChange(of: isActive) { scale = 1.0; pulse() }
+    }
+
+    private func pulse() {
+        guard isActive else { return }
+        withAnimation(.easeInOut(duration: 0.85).repeatForever(autoreverses: true)) { scale = 1.9 }
+    }
+}
+
+struct MiniSparkline: View {
+    let points: [Int]
+    let color: Color
+
+    var body: some View {
+        let maxVal = max(points.max() ?? 1, 1)
+        Canvas { ctx, size in
+            guard points.count > 1 else { return }
+            var path = Path()
+            for (i, v) in points.enumerated() {
+                let x = size.width * Double(i) / Double(points.count - 1)
+                let y = size.height - size.height * Double(v) / Double(maxVal)
+                i == 0 ? path.move(to: CGPoint(x: x, y: y)) : path.addLine(to: CGPoint(x: x, y: y))
+            }
+            ctx.stroke(path, with: .color(color.opacity(0.85)),
+                       style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+        }
+    }
+}
+
 // MARK: - PopoverView
 
 struct PopoverView: View {
@@ -133,6 +178,7 @@ struct PopoverView: View {
     @State private var expandedSessionId: String? = nil
     @State private var chartRange: ChartRange = .week
     @State private var chartMetric: ChartMetric = .tokens
+    @State private var liveMinutes: Int = 15
 
     private var effectiveState: EyeActivityState {
         eyeAnimator.forcedState ?? eyeAnimator.currentState
@@ -215,6 +261,7 @@ struct PopoverView: View {
         case .walking:  return ("🚶", "Walking",   .blue)
         case .running:  return ("🏃", "Running",   .green)
         case .working:  return ("⚡️", "Sprinting", .orange)
+        case .locked:   return ("🔒", "Locked",    .red)
         }
     }
 
@@ -225,6 +272,7 @@ struct PopoverView: View {
         case .walking:  return "Idle • recently active"
         case .running:  return "\(formatTokenRate(rate)) flowing"
         case .working:  return "\(formatTokenRate(rate)) • full throttle 🔥"
+        case .locked:   return "Subscription limit reached — bot is behind bars"
         }
     }
 
@@ -256,9 +304,10 @@ struct PopoverView: View {
     @ViewBuilder
     private func detailContent(status: StatusSnapshot) -> some View {
         switch detailTab {
+        case .analytics: analyticsView(status: status)
+        case .live:      liveView(status: status)
         case .models:    modelsView(status: status)
         case .sessions:  sessionsView(status: status)
-        case .analytics: analyticsView(status: status)
         }
     }
 
@@ -443,9 +492,9 @@ struct PopoverView: View {
                 analyticsSummaryCards(tokens: tokens, cost: cost, sessions: sessions, messages: messages)
                 analyticsTrendSection(data: chartPoints, isHourly: isHourly)
                 analyticsStatsBreakdown(tokens: tokens, sessions: sessions, messages: messages, nDays: nDays)
-                if !status.topTools.isEmpty    { analyticsBarSection(title: "TOP TOOLS",    stats: status.topTools) }
                 if !status.topSkills.isEmpty   { analyticsBarSection(title: "TOP SKILLS",   stats: status.topSkills,   barColor: .teal) }
                 if !status.topCommands.isEmpty { analyticsBarSection(title: "TOP COMMANDS", stats: status.topCommands, barColor: .purple) }
+                if !status.topTools.isEmpty    { analyticsBarSection(title: "TOP TOOLS",    stats: status.topTools) }
                 analyticsSessionsSection(sessions: status.allSessions)
             }
             .padding(12)
@@ -596,6 +645,124 @@ struct PopoverView: View {
         .frame(maxWidth: .infinity)
     }
 
+    // MARK: - Live tab
+
+    private let sessionPalette: [Color] = [.blue, .green, .orange, .purple, .teal, .red, .pink]
+
+    private func sessionLabel(_ session: SessionInfo) -> String {
+        session.slug.isEmpty ? String(session.sessionId.prefix(8)) : session.slug
+    }
+
+    private func liveView(status: StatusSnapshot) -> some View {
+        let series = status.activeSeriesData
+        return Group {
+            if series.isEmpty {
+                emptyDetailView(icon: "bolt.slash", text: "No active sessions")
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        liveSessionsSection(series: series)
+                        liveChartSection(series: series)
+                    }
+                    .padding(12)
+                }
+            }
+        }
+    }
+
+    private func liveSessionsSection(series: [SessionMinuteSeries]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            analyticsSectionLabel("RUNNING SESSIONS")
+            ForEach(Array(series.enumerated()), id: \.1.id) { idx, s in
+                liveSessionCard(s, color: sessionPalette[idx % sessionPalette.count])
+            }
+        }
+    }
+
+    private func liveSessionCard(_ series: SessionMinuteSeries, color: Color) -> some View {
+        let session   = series.session
+        let lastTok   = series.points.last?.tokens ?? 0
+        let isActive  = lastTok > 0
+        let spark     = series.points.suffix(12).map(\.tokens)
+        let path      = session.displayPath.isEmpty ? session.project : session.displayPath
+
+        return HStack(spacing: 10) {
+            PulseIndicator(color: color, isActive: isActive)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(sessionLabel(session))
+                    .font(.system(.caption, design: .monospaced, weight: .semibold)).lineLimit(1)
+                if !path.isEmpty {
+                    Text(path).font(.system(size: 9)).foregroundStyle(.tertiary).lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            if spark.contains(where: { $0 > 0 }) {
+                MiniSparkline(points: Array(spark), color: color).frame(width: 44, height: 18)
+            }
+
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(isActive ? formatTokenCount(lastTok) : "—")
+                    .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(isActive ? color : Color.secondary)
+                Text("t/min").font(.system(size: 8)).foregroundStyle(.tertiary)
+            }
+            .frame(width: 48, alignment: .trailing)
+        }
+        .padding(.horizontal, 10).padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.secondary.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .stroke(color.opacity(isActive ? 0.35 : 0.1), lineWidth: 1))
+    }
+
+    private func liveChartSection(series: [SessionMinuteSeries]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                analyticsSectionLabel("TOKENS / MINUTE")
+                Spacer()
+                HStack(spacing: 2) {
+                    rangeButton("15m", isActive: liveMinutes == 15) { liveMinutes = 15 }
+                    rangeButton("30m", isActive: liveMinutes == 30) { liveMinutes = 30 }
+                }
+            }
+
+            Chart {
+                ForEach(Array(series.enumerated()), id: \.1.id) { _, s in
+                    ForEach(Array(s.points.suffix(liveMinutes))) { pt in
+                        LineMark(
+                            x: .value("Time", pt.date),
+                            y: .value("Tokens", pt.tokens)
+                        )
+                        .foregroundStyle(by: .value("Session", sessionLabel(s.session)))
+                        .interpolationMethod(.catmullRom)
+                        .lineStyle(StrokeStyle(lineWidth: 2))
+                    }
+                }
+            }
+            .chartXAxis {
+                AxisMarks(values: .stride(by: .minute, count: 5)) { _ in
+                    AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
+                    AxisValueLabel(
+                        format: .dateTime.hour(.defaultDigits(amPM: .omitted)).minute()
+                    ).font(.system(size: 8))
+                }
+            }
+            .chartYAxis {
+                AxisMarks(position: .leading) { v in
+                    AxisGridLine().foregroundStyle(Color.secondary.opacity(0.15))
+                    AxisValueLabel {
+                        if let n = v.as(Int.self) { Text(formatTokenCount(n)).font(.system(size: 8)) }
+                    }
+                }
+            }
+            .chartLegend(position: .bottom, alignment: .leading)
+            .chartPlotStyle { $0.background(Color.secondary.opacity(0.04)) }
+            .frame(height: 140)
+        }
+    }
+
     // MARK: Sessions list
 
     private func analyticsSessionsSection(sessions: [SessionInfo]) -> some View {
@@ -677,8 +844,9 @@ struct PopoverView: View {
         detailRow(label: "Duration",
                   value: "\(formatElapsed(session.activeTime)) active · \(formatElapsed(session.idleTime)) idle")
         if session.totalTurns > 0 {
-            detailRow(label: "Turns",
-                      value: "\(session.userTurnCount) human · \(session.assistantTurnCount) agent (\(Int((session.humanTurnsRatio * 100).rounded()))% human)")
+            let humanPct = Int((session.humanTurnsRatio * 100).rounded())
+            detailRow(label: "Participation",
+                      value: "\(humanPct)% human · \(100 - humanPct)% agent")
         }
         detailRow(label: "Tokens",
                   value: "↑\(formatTokenCount(session.totalInputTokens)) in · ↓\(formatTokenCount(session.totalOutputTokens)) out")
@@ -777,7 +945,7 @@ struct PopoverView: View {
                 }
             }
             HStack(spacing: 5) {
-                ForEach([EyeActivityState.sleeping, .walking, .running, .working], id: \.self) { state in
+                ForEach([EyeActivityState.sleeping, .walking, .running, .working, .locked], id: \.self) { state in
                     debugStateButton(state, label: debugLabel(state))
                 }
             }
@@ -787,8 +955,11 @@ struct PopoverView: View {
 
     private func debugLabel(_ state: EyeActivityState) -> String {
         switch state {
-        case .sleeping: return "Sleep"; case .walking: return "Walk"
-        case .running: return "Run";    case .working: return "Sprint"
+        case .sleeping: return "Sleep"
+        case .walking:  return "Walk"
+        case .running:  return "Run"
+        case .working:  return "Sprint"
+        case .locked:   return "Lock"
         }
     }
 

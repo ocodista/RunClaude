@@ -60,7 +60,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func tick() {
-        eyeAnimator.updateBurnRate(tokensPerSecond: engine.status?.tokensPerSecond ?? 0)
+        eyeAnimator.updateBurnRate(tokensPerSecond: engine.status?.tokensPerSecond ?? 0,
+                                   isRateLimited: engine.status?.isRateLimited ?? false)
         eyeAnimator.tick()
         let image = EyeRenderer.render(
             state: eyeAnimator.forcedState ?? eyeAnimator.currentState,
